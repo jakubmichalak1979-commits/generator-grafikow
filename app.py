@@ -11,8 +11,17 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+import os
 
 st.set_page_config(page_title="Generator Grafików Pro", layout="wide", initial_sidebar_state="expanded")
+
+# --- Initialize Database ---
+try:
+    db.init_db()
+except Exception as e:
+    st.error(f"⚠️ Błąd połączenia z bazą danych! Sprawdź ustawienia 'Secrets' na Streamlit Cloud.")
+    st.info("Prawdopodobnie musisz użyć linku 'Pooler' z Supabase (port 6543) zamiast bezpośredniego połączenia.")
+    st.stop()
 
 # --- Authentication ---
 if 'authenticated' not in st.session_state:
@@ -83,8 +92,6 @@ def send_email_with_attachments(to_email, subject, body, attachments):
 import os
 
 # --- Main App ---
-
-db.init_db()
 
 st.sidebar.title(f"Witaj, {st.session_state['username']}")
 if st.sidebar.button("Wyloguj"):
