@@ -216,19 +216,35 @@ elif menu == "Pracownicy" and st.session_state['user_role'] == 'admin':
     with st.expander("Dodaj nowego pracownika"):
         new_name = st.text_input("Imię i Nazwisko")
         new_email = st.text_input("Email")
+        new_order = st.number_input("Kolejność (0-100)", 0, 100, 0)
         if st.button("Dodaj"):
-            db.add_employee(new_name, location_id, new_email)
+            db.add_employee(new_name, location_id, new_email, new_order)
             st.success("Dodano!")
             st.rerun()
     
     st.divider()
-    emps = db.get_employees(location_id)
-    if emps:
-        for eid, name, email in emps:
+    st.subheader("Lista pracowników i kolejność")
+    
+    emps_data = db.get_employees(location_id)
+    if emps_data:
+        # Create a dataframe for easy editing
+        # emps_data tuple: (id, name, email, sort_order)
+        df_order = pd.DataFrame([{"ID": e[0], "Imię i Nazwisko": e[1], "Kolejność": e[3]} for e in emps_data])
+        edited_order = st.data_editor(df_order, hide_index=True, disabled=["ID", "Imię i Nazwisko"])
+        
+        if st.button("Zapisz nową kolejność"):
+            for _, row in edited_order.iterrows():
+                db.update_employee_order(row["ID"], row["Kolejność"])
+            st.success("Kolejność została zapisana!")
+            st.rerun()
+
+        st.divider()
+        st.subheader("Zarządzanie (Usuwanie)")
+        for eid, name, email, s_order in emps_data:
             c1, c2, c3 = st.columns([3, 3, 1])
-            c1.write(f"**{name}**")
+            c1.write(f"**{name}** (Poz: {s_order})")
             c2.write(email if email else "-")
-            if c3.button("Usuń", key=f"del_{eid}"):
+            if c3.button("Usuń", key=f"del_emp_{eid}"):
                 db.remove_employee(eid)
                 st.rerun()
     else:

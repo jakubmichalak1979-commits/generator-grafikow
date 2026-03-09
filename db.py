@@ -32,6 +32,7 @@ class Employee(Base):
     name = Column(String)
     email = Column(String, nullable=True)
     location_id = Column(Integer, ForeignKey("locations.id"))
+    sort_order = Column(Integer, default=0)
     __table_args__ = (UniqueConstraint('name', 'location_id', name='_name_loc_uc'),)
 
 class Unavailability(Base):
@@ -83,17 +84,25 @@ def get_employees(location_id=None):
     query = db.query(Employee)
     if location_id:
         query = query.filter(Employee.location_id == location_id)
-    emps = query.order_by(Employee.name).all()
+    emps = query.order_by(Employee.sort_order, Employee.name).all()
     db.close()
-    return [(e.id, e.name, e.email) for e in emps]
+    return [(e.id, e.name, e.email, e.sort_order) for e in emps]
 
-def add_employee(name, location_id, email=None):
+def add_employee(name, location_id, email=None, sort_order=0):
     db = SessionLocal()
-    db.add(Employee(name=name, location_id=location_id, email=email))
+    db.add(Employee(name=name, location_id=location_id, email=email, sort_order=sort_order))
     try:
         db.commit()
     except:
         db.rollback()
+    db.close()
+
+def update_employee_order(emp_id, sort_order):
+    db = SessionLocal()
+    emp = db.query(Employee).filter(Employee.id == emp_id).first()
+    if emp:
+        emp.sort_order = sort_order
+        db.commit()
     db.close()
 
 def update_employee(emp_id, name, email=None):
@@ -153,7 +162,7 @@ def get_all_stats(location_id=None):
         if name not in stats: stats[name] = {'R': 0, 'P': 0, 'N': 0, 'W': 0, 'U': 0, 'CH': 0}
         if shift in stats[name]: stats[name][shift] = count
     emps = get_employees(location_id)
-    for _, name, _ in emps:
+    for _, name, _, _ in emps:
         if name not in stats: stats[name] = {'R': 0, 'P': 0, 'N': 0, 'W': 0, 'U': 0, 'CH': 0}
     db.close()
     return stats
