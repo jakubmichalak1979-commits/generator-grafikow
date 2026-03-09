@@ -163,3 +163,24 @@ def verify_user(username, password):
     user = db.query(User).filter(User.username == username, User.password == password).first()
     db.close()
     return user
+
+def get_users():
+    db = SessionLocal()
+    users = db.query(User).all()
+    db.close()
+    return [(u.id, u.username, u.role) for u in users]
+
+def add_user(username, password, role="user"):
+    db = SessionLocal()
+    db.add(User(username=username, password=password, role=role))
+    try:
+        db.commit()
+    except:
+        db.rollback()
+    db.close()
+
+def remove_user(user_id):
+    db = SessionLocal()
+    db.query(User).filter(User.id == user_id).delete()
+    db.commit()
+    db.close()

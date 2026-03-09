@@ -109,7 +109,7 @@ st.sidebar.divider()
 
 menu_options = ["Generowanie Grafiku", "Niedostępności (Urlopy/L4)", "Statystyki"]
 if st.session_state['user_role'] == 'admin':
-    menu_options += ["Zatwierdzanie i Archiwum", "Pracownicy"]
+    menu_options += ["Zatwierdzanie i Archiwum", "Pracownicy", "Zarządzanie Kontami"]
 
 menu = st.sidebar.radio("Nawigacja", menu_options)
 
@@ -223,10 +223,43 @@ elif menu == "Pracownicy" and st.session_state['user_role'] == 'admin':
     
     st.divider()
     emps = db.get_employees(location_id)
-    for eid, name, email in emps:
-        c1, c2, c3 = st.columns([3, 3, 1])
-        c1.write(f"**{name}**")
-        c2.write(email if email else "-")
-        if c3.button("Usuń", key=f"del_{eid}"):
-            db.remove_employee(eid)
-            st.rerun()
+    if emps:
+        for eid, name, email in emps:
+            c1, c2, c3 = st.columns([3, 3, 1])
+            c1.write(f"**{name}**")
+            c2.write(email if email else "-")
+            if c3.button("Usuń", key=f"del_{eid}"):
+                db.remove_employee(eid)
+                st.rerun()
+    else:
+        st.write("Brak pracowników.")
+
+elif menu == "Zarządzanie Kontami" and st.session_state['user_role'] == 'admin':
+    st.header("Zarządzanie Kontami Użytkowników")
+    st.write("Tutaj możesz zarządzać osobami, które mają dostęp do tej aplikacji.")
+    
+    with st.expander("Utwórz nowe konto"):
+        new_user = st.text_input("Nazwa użytkownika")
+        new_pass = st.text_input("Hasło użytkownika", type="password")
+        new_role = st.selectbox("Rola", ["user", "admin"])
+        if st.button("Utwórz Konto"):
+            if new_user and new_pass:
+                db.add_user(new_user, new_pass, new_role)
+                st.success(f"Dodano użytkownika {new_user}!")
+                st.rerun()
+            else:
+                st.error("Wypełnij wszystkie pola.")
+
+    st.divider()
+    st.subheader("Aktualne konta w systemie")
+    users = db.get_users()
+    for uid, uname, urole in users:
+        colA, colB, colC = st.columns([2, 2, 1])
+        colA.write(f"**{uname}**")
+        colB.write(f"Rola: `{urole}`")
+        if uname != 'admin': # Zabezpieczenie przed usunięciem głównego admina
+            if colC.button("Usuń", key=f"user_{uid}"):
+                db.remove_user(uid)
+                st.rerun()
+        else:
+            colC.write("🔒")
