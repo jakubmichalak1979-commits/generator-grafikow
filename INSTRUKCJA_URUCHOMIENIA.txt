@@ -1,0 +1,35 @@
+INSTRUKCJA URUCHOMIENIA GENERATORA GRAFIKOW
+========================================
+
+Folder ten zawiera kompletna aplikacje do generowania grafikow pracy dla trzech obiektow:
+- Maszynownia Przepompowni
+- Oczyszczalnia
+- Kanalarze
+
+Mozesz go przeniesc na dowolny komputer z systemem Windows.
+
+WYMAGANIA:
+----------
+1. Na komputerze musi byc zainstalowany Python (wersja 3.8 lub nowsza).
+2. Przy instalacji Pythona zaznacz opcje "Add Python to PATH".
+
+JAK URUCHOMIC?
+--------------
+1. Znajdz w tym folderze plik "run.bat".
+2. Kliknij na niego dwa razy lewym przyciskiem myszy.
+3. Przy pierwszym uruchomieniu program automatycznie pobierze potrzebne biblioteki (wymagany internet).
+4. Po chwili otworzy sie okno przegladarki.
+
+WYBOR OBIEKTU:
+--------------
+Z lewej strony w programie znajdziesz panel "Wybierz Obiekt". Przelaczaj sie miedzy Maszynownia a Oczyszczalnia, aby zobaczyc przypisanych do nich pracownikow i zasady.
+
+PLIKI W KATALOGU:
+-----------------
+- app.py, scheduler.py itp. - pliki z kodem programu.
+- grafik.db - Twoja baza danych (Pracownicy, Historia).
+- requirements.txt - lista bibliotek.
+
+UWAGI:
+------
+- Nie usuwaj pliku "grafik.db", jesli chcesz zachowac swoje dane.
