@@ -1,201 +1,197 @@
-import sqlite3
+import os
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Date, UniqueConstraint, Boolean, Text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
 from datetime import date
+import streamlit as st
 
-DB_PATH = "grafik.db"
+# Connection string from user (with placeholder for security in code if needed, but here we use it directly)
+# In production, this should be in st.secrets
+DB_URL = st.secrets.get("db_url", "postgresql://postgres:Logowanie000@db.oxzlfmaotsosxzvivjrt.supabase.co:5432/postgres")
+
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# --- Models ---
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, PRIMARY KEY=True, index=True)
+    username = Column(String, unique=True, index=True)
+    password = Column(String)  # In real app use hashing
+    role = Column(String)  # 'admin' or 'user'
+
+class Location(Base):
+    __tablename__ = "locations"
+    id = Column(Integer, PRIMARY KEY=True, index=True)
+    name = Column(String, unique=True, index=True)
+
+class Employee(Base):
+    __tablename__ = "employees"
+    id = Column(Integer, PRIMARY KEY=True, index=True)
+    name = Column(String)
+    location_id = Column(Integer, ForeignKey("locations.id"))
+    __table_args__ = (UniqueConstraint('name', 'location_id', name='_name_loc_uc'),)
+
+class Unavailability(Base):
+    __tablename__ = "unavailabilities"
+    id = Column(Integer, PRIMARY KEY=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"))
+    location_id = Column(Integer, ForeignKey("locations.id"))
+    year = Column(Integer)
+    month = Column(Integer)
+    day = Column(Integer)
+    type = Column(String) # 'U', 'CH', etc.
+
+class Schedule(Base):
+    __tablename__ = "schedules"
+    id = Column(Integer, PRIMARY KEY=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"))
+    location_id = Column(Integer, ForeignKey("locations.id"))
+    year = Column(Integer)
+    month = Column(Integer)
+    day = Column(Integer)
+    shift = Column(String) # 'R', 'P', 'N'
+    status = Column(String, default="DRAFT") # 'DRAFT', 'PENDING', 'APPROVED'
+    version = Column(Integer, default=1)
+    created_by = Column(String)
+    created_at = Column(Date, default=date.today)
+
+# --- DB Interactions ---
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
     
-    # Lokacje (Obiekty)
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS locations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL
-        )
-    ''')
+    # Init default locations
+    if db.query(Location).count() == 0:
+        locs = ["Maszynownia Przepompowni", "Oczyszczalnia", "Kanalarze"]
+        for l in locs:
+            db.add(Location(name=l))
     
-    # Pracownicy (z location_id)
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS employees (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            location_id INTEGER,
-            FOREIGN KEY(location_id) REFERENCES locations(id),
-            UNIQUE(name, location_id)
-        )
-    ''')
-    
-    # Niedostępności
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS unavailabilities (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            employee_id INTEGER,
-            location_id INTEGER,
-            year INTEGER,
-            month INTEGER,
-            day INTEGER,
-            type TEXT,
-            FOREIGN KEY(employee_id) REFERENCES employees(id),
-            FOREIGN KEY(location_id) REFERENCES locations(id)
-        )
-    ''')
-    
-    # Zapisane grafiki
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS schedules (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            employee_id INTEGER,
-            location_id INTEGER,
-            year INTEGER,
-            month INTEGER,
-            day INTEGER,
-            shift TEXT,
-            FOREIGN KEY(employee_id) REFERENCES employees(id),
-            FOREIGN KEY(location_id) REFERENCES locations(id)
-        )
-    ''')
-    
-    # Migracja: dodaj kolumnę location_id jeśli nie istnieje (dla starszych wersji)
-    try:
-        c.execute("ALTER TABLE employees ADD COLUMN location_id INTEGER REFERENCES locations(id)")
-    except sqlite3.OperationalError:
-        pass # już istnieje
+    # Init default users
+    if db.query(User).count() == 0:
+        db.add(User(username="admin", password="Logowanie000", role="admin"))
+        db.add(User(username="uzytkownik1", password="grafiki2026", role="user"))
         
-    try:
-        c.execute("ALTER TABLE unavailabilities ADD COLUMN location_id INTEGER REFERENCES locations(id)")
-    except sqlite3.OperationalError:
-        pass
-        
-    try:
-        c.execute("ALTER TABLE schedules ADD COLUMN location_id INTEGER REFERENCES locations(id)")
-    except sqlite3.OperationalError:
-        pass
+    db.commit()
+    db.close()
 
-    # Wypełnienie domyślnymi lokacjami
-    locations = ["Maszynownia Przepompowni", "Oczyszczalnia", "Kanalarze"]
-    for loc in locations:
-        c.execute("INSERT OR IGNORE INTO locations (name) VALUES (?)", (loc,))
-    
-    # Pobierz ID pierwszej lokacji
-    c.execute("SELECT id FROM locations WHERE name = ?", (locations[0],))
-    default_loc_id = c.fetchone()[0]
-    
-    # Wypełnienie domyślnymi pracownikami dla pierwszej lokacji, jeśli pusto
-    c.execute('SELECT COUNT(*) FROM employees')
-    if c.fetchone()[0] == 0:
-        default_emps = [f"Pracownik {i}" for i in range(1, 8)]
-        c.executemany("INSERT INTO employees (name, location_id) VALUES (?, ?)", [(e, default_loc_id) for e in default_emps])
-        
-    conn.commit()
-    conn.close()
+def get_db():
+    db = SessionLocal()
+    try:
+        return db
+    finally:
+        db.close()
 
 def get_locations():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT id, name FROM locations")
-    locs = c.fetchall()
-    conn.close()
-    return locs
+    db = SessionLocal()
+    locs = db.query(Location).all()
+    db.close()
+    return [(l.id, l.name) for l in locs]
 
 def get_employees(location_id=None):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    db = SessionLocal()
     if location_id:
-        c.execute("SELECT id, name FROM employees WHERE location_id=?", (location_id,))
+        emps = db.query(Employee).filter(Employee.location_id == location_id).all()
     else:
-        c.execute("SELECT id, name FROM employees")
-    emps = c.fetchall()
-    conn.close()
-    return emps
+        emps = db.query(Employee).all()
+    db.close()
+    return [(e.id, e.name) for e in emps]
 
 def add_employee(name, location_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO employees (name, location_id) VALUES (?, ?)", (name, location_id))
-    conn.commit()
-    conn.close()
-
-def update_employee(emp_id, new_name):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    db = SessionLocal()
+    emp = Employee(name=name, location_id=location_id)
+    db.add(emp)
     try:
-        c.execute("UPDATE employees SET name = ? WHERE id = ?", (new_name, emp_id))
-        conn.commit()
-        success = True
-    except sqlite3.IntegrityError:
-        success = False
-    finally:
-        conn.close()
-    return success
+        db.commit()
+    except:
+        db.rollback()
+    db.close()
 
 def remove_employee(emp_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM schedules WHERE employee_id=?", (emp_id,))
-    c.execute("DELETE FROM unavailabilities WHERE employee_id=?", (emp_id,))
-    c.execute("DELETE FROM employees WHERE id=?", (emp_id,))
-    conn.commit()
-    conn.close()
+    db = SessionLocal()
+    db.query(Schedule).filter(Schedule.employee_id == emp_id).delete()
+    db.query(Unavailability).filter(Unavailability.employee_id == emp_id).delete()
+    db.query(Employee).filter(Employee.id == emp_id).delete()
+    db.commit()
+    db.close()
 
 def get_unavailabilities(year, month, location_id=None):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    db = SessionLocal()
+    query = db.query(Unavailability).filter(Unavailability.year == year, Unavailability.month == month)
     if location_id:
-        c.execute("SELECT employee_id, day, type FROM unavailabilities WHERE year=? AND month=? AND location_id=?", (year, month, location_id))
-    else:
-        c.execute("SELECT employee_id, day, type FROM unavailabilities WHERE year=? AND month=?", (year, month))
-    rows = c.fetchall()
-    conn.close()
-    return rows
+        query = query.filter(Unavailability.location_id == location_id)
+    rows = query.all()
+    db.close()
+    return [(r.employee_id, r.day, r.type) for r in rows]
 
 def update_unavailabilities_for_month(year, month, data_list, location_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM unavailabilities WHERE year=? AND month=? AND location_id=?", (year, month, location_id))
+    db = SessionLocal()
+    db.query(Unavailability).filter(
+        Unavailability.year == year, 
+        Unavailability.month == month, 
+        Unavailability.location_id == location_id
+    ).delete()
     for emp_id, day, typ in data_list:
-        c.execute("INSERT INTO unavailabilities (employee_id, location_id, year, month, day, type) VALUES (?, ?, ?, ?, ?, ?)",
-                  (emp_id, location_id, year, month, day, typ))
-    conn.commit()
-    conn.close()
+        db.add(Unavailability(employee_id=emp_id, location_id=location_id, year=year, month=month, day=day, type=typ))
+    db.commit()
+    db.close()
 
-def save_schedule(schedule_dict, year, month, emp_name_to_id, location_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+def save_schedule(schedule_dict, year, month, emp_name_to_id, location_id, status="DRAFT", user="system"):
+    db = SessionLocal()
     
-    # Usuwamy stary dla tego miesiąca w tej lokacji
-    c.execute("DELETE FROM schedules WHERE year=? AND month=? AND location_id=?", (year, month, location_id))
+    # For now, we overwrite if same month/loc/status or just wipe and re-save
+    # To support archives, we should probably handle versions better.
+    # Simple approach: one record per day/emp/month/loc
+    db.query(Schedule).filter(
+        Schedule.year == year, 
+        Schedule.month == month, 
+        Schedule.location_id == location_id,
+        Schedule.status == status
+    ).delete()
     
     for emp_name, days in schedule_dict.items():
         emp_id = emp_name_to_id[emp_name]
         for d, shift in days.items():
             if shift:
-                c.execute("INSERT INTO schedules (employee_id, location_id, year, month, day, shift) VALUES (?, ?, ?, ?, ?, ?)",
-                          (emp_id, location_id, year, month, d, shift))
-    conn.commit()
-    conn.close()
+                db.add(Schedule(
+                    employee_id=emp_id, 
+                    location_id=location_id, 
+                    year=year, 
+                    month=month, 
+                    day=d, 
+                    shift=shift,
+                    status=status,
+                    created_by=user
+                ))
+    db.commit()
+    db.close()
+
+def get_schedule(year, month, location_id, status="APPROVED"):
+    db = SessionLocal()
+    rows = db.query(Schedule).filter(
+        Schedule.year == year, 
+        Schedule.month == month, 
+        Schedule.location_id == location_id,
+        Schedule.status == status
+    ).all()
+    db.close()
+    return rows
 
 def get_all_stats(location_id=None):
-    # Zlicza sumarycznie liczbę R, P, N ze wszystkich miesięcy per pracownik
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    db = SessionLocal()
+    from sqlalchemy import func
+    
+    query = db.query(Employee.name, Schedule.shift, func.count(Schedule.id))\
+              .join(Schedule, Employee.id == Schedule.employee_id)\
+              .filter(Schedule.status == "APPROVED")
+              
     if location_id:
-        c.execute('''
-            SELECT e.name, s.shift, COUNT(s.id)
-            FROM employees e
-            LEFT JOIN schedules s ON e.id = s.employee_id AND s.location_id=?
-            WHERE e.location_id=?
-            GROUP BY e.name, s.shift
-        ''', (location_id, location_id))
-    else:
-        c.execute('''
-            SELECT e.name, s.shift, COUNT(s.id)
-            FROM employees e
-            LEFT JOIN schedules s ON e.id = s.employee_id
-            GROUP BY e.name, s.shift
-        ''')
-    rows = c.fetchall()
-    conn.close()
+        query = query.filter(Schedule.location_id == location_id, Employee.location_id == location_id)
+        
+    rows = query.group_by(Employee.name, Schedule.shift).all()
     
     stats = {}
     for name, shift, count in rows:
@@ -204,10 +200,16 @@ def get_all_stats(location_id=None):
         if shift in stats[name]:
             stats[name][shift] = count
             
-    # Normalize for missing employees
+    # Fill missing emps
     emps = get_employees(location_id)
     for _, name in emps:
         if name not in stats:
             stats[name] = {'R': 0, 'P': 0, 'N': 0, 'W': 0, 'U': 0, 'CH': 0}
-            
+    db.close()
     return stats
+
+def verify_user(username, password):
+    db = SessionLocal()
+    user = db.query(User).filter(User.username == username, User.password == password).first()
+    db.close()
+    return user
