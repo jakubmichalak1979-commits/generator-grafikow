@@ -25,12 +25,12 @@ except Exception as e:
     st.stop()
 
 # --- Cookie Manager for 'Remember Me' ---
-cookie_manager = stx.CookieManager()
+cookie_manager = stx.CookieManager(key="cm_global")
 
 def check_cookies():
-    saved_user = cookie_manager.get("remember_user")
-    saved_pass = cookie_manager.get("remember_pass")
-    if saved_user and saved_pass and not st.session_state['authenticated']:
+    creds = cookie_manager.get("remember_creds")
+    if creds and "|" in creds and not st.session_state['authenticated']:
+        saved_user, saved_pass = creds.split("|", 1)
         user = db.verify_user(saved_user, saved_pass)
         if user:
             st.session_state['authenticated'] = True
@@ -67,9 +67,9 @@ def login():
                     st.session_state['username'] = user.username
                     
                     if remember:
-                        # Save for 30 days
-                        cookie_manager.set("remember_user", username, expires_at=date.today().replace(year=date.today().year + 1))
-                        cookie_manager.set("remember_pass", password, expires_at=date.today().replace(year=date.today().year + 1))
+                        # Save credentials as a single string to avoid duplicate component calls
+                        creds = f"{username}|{password}"
+                        cookie_manager.set("remember_creds", creds, expires_at=date.today().replace(year=date.today().year + 1))
                     
                     st.success("Zalogowano pomyślnie!")
                     st.rerun()
@@ -124,8 +124,7 @@ import os
 st.sidebar.title(f"Witaj, {st.session_state['username']}")
 if st.sidebar.button("Wyloguj"):
     st.session_state['authenticated'] = False
-    cookie_manager.delete("remember_user")
-    cookie_manager.delete("remember_pass")
+    cookie_manager.delete("remember_creds")
     st.rerun()
 
 st.title("📅 Generator Grafików Pracy Online")
