@@ -613,13 +613,14 @@ elif menu == "Pracownicy" and st.session_state['user_role'] == 'admin':
     if emps_data:
         # Create a dataframe for easy editing
         # emps_data tuple: (id, name, email, sort_order)
-        df_order = pd.DataFrame([{"ID": e[0], "Imię i Nazwisko": e[1], "Kolejność": e[3]} for e in emps_data])
-        edited_order = st.data_editor(df_order, hide_index=True, disabled=["ID", "Imię i Nazwisko"])
+        df_order = pd.DataFrame([{"ID": e[0], "Imię i Nazwisko": e[1], "Email": e[2], "Kolejność": e[3]} for e in emps_data])
+        edited_order = st.data_editor(df_order, hide_index=True, disabled=["ID"])
         
-        if st.button("Zapisz nową kolejność"):
+        if st.button("Zapisz zmiany (Dane i Kolejność)"):
             for _, row in edited_order.iterrows():
                 db.update_employee_order(row["ID"], row["Kolejność"])
-            st.success("Kolejność została zapisana!")
+                db.update_employee(row["ID"], row["Imię i Nazwisko"], row["Email"])
+            st.success("Zmiany zostały zapisane!")
             st.rerun()
 
         st.divider()
