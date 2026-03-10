@@ -214,22 +214,34 @@ if menu == "Generowanie Grafiku":
                     st.subheader("Edycja i weryfikacja grafiku")
                     
                     # --- Kolorowy Podgląd (Informacyjny) ---
-                    def highlight_days_gen(row):
-                        styles = []
-                        for col in row.index:
-                            try:
-                                d_int = int(col)
-                                dt = date(rok, miesiac, d_int)
-                                if dt.weekday() == 6 or dt in pl_holidays:
-                                    styles.append('background-color: #ffb3b3') # Czerwony
-                                elif dt.weekday() == 5:
-                                    styles.append('background-color: #b3ffb3') # Zielony
-                                else: styles.append('')
-                            except: styles.append('') # Kolumny tekstowe (statystyki)
-                        return styles
+                    def style_preview(df_to_style):
+                        # Funkcja do kolorowania tła (weekendy)
+                        def highlight_days_gen(row):
+                            styles = []
+                            for col in row.index:
+                                try:
+                                    d_int = int(col)
+                                    dt = date(rok, miesiac, d_int)
+                                    if dt.weekday() == 6 or dt in pl_holidays:
+                                        styles.append('background-color: #ffb3b3')
+                                    elif dt.weekday() == 5:
+                                        styles.append('background-color: #b3ffb3')
+                                    else: styles.append('')
+                                except: styles.append('')
+                            return styles
+                        
+                        # Funkcja do kolorowania czcionki (zmiany)
+                        def color_text(val):
+                            if val == 'R': return 'color: green; font-weight: bold'
+                            if val == 'P': return 'color: blue; font-weight: bold'
+                            if val in ['W', 'U', 'CH']: return 'color: red; font-weight: bold'
+                            if val == 'N': return 'color: black; font-weight: bold'
+                            return ''
 
-                    st.write("💡 **Legenda kolorów (tylko podgląd):** Zielony = Sobota, Czerwony = Niedziela/Święto")
-                    st.dataframe(df_wynik[days_list_str].style.apply(highlight_days_gen, axis=1), use_container_width=True)
+                        return df_to_style.style.apply(highlight_days_gen, axis=1).map(color_text)
+
+                    st.write("💡 **Legenda kolorów (Podgląd):** Zielony = Sobota, Czerwony = Niedziela/Święto. Litery: R=zielony, P=niebieski, W/U/CH=czerwony")
+                    st.dataframe(style_preview(df_wynik[days_list_str]), use_container_width=True)
 
                     # --- Edytor z Podsumowaniem po prawej ---
                     shift_options = ['R', 'P', 'N', 'W', 'U', 'CH']
@@ -327,27 +339,33 @@ elif menu == "Niedostępności (Urlopy/L4)":
         df = pd.DataFrame(index=[e[1] for e in emps], columns=[str(d) for d in range(1, num_days+1)])
         for eid, d, t in unav:
             if eid in reverse_emps: df.at[reverse_emps[eid], str(d)] = t
-        # --- Kolorowanie i Skonfigurowanie Wyboru ---
-        pl_holidays = holidays.Poland(years=vr)
-        
-        def highlight_days(row):
-            styles = []
-            for col in row.index:
-                try:
-                    d_int = int(col)
-                    dt = date(vr, vm, d_int)
-                    if dt.weekday() == 6 or dt in pl_holidays: # Niedziela / Święto
-                        styles.append('background-color: #ffccce') # Jasnoczerwony
-                    elif dt.weekday() == 5: # Sobota
-                        styles.append('background-color: #ccffcc') # Jasnozielony
-                    else:
-                        styles.append('')
-                except:
-                    styles.append('')
-            return styles
+        # --- Kolorowanie podglądu nieobecności ---
+        def style_unav(df_to_style):
+            def highlight_days(row):
+                styles = []
+                for col in row.index:
+                    try:
+                        d_int = int(col)
+                        dt = date(vr, vm, d_int)
+                        if dt.weekday() == 6 or dt in pl_holidays:
+                            styles.append('background-color: #ffccce')
+                        elif dt.weekday() == 5:
+                            styles.append('background-color: #ccffcc')
+                        else: styles.append('')
+                    except: styles.append('')
+                return styles
 
-        st.write("**Podgląd dni (kolory - Soboty: zielony, Niedziele/Święta: czerwony):**")
-        st.dataframe(df.style.apply(highlight_days, axis=1), use_container_width=True)
+            def color_text_unav(val):
+                if val in ['W', 'U', 'CH', 'N', 'NR', 'NP', 'NN']: return 'color: red; font-weight: bold'
+                if val in ['R', 'TR']: return 'color: green; font-weight: bold'
+                if val in ['P', 'TP']: return 'color: blue; font-weight: bold'
+                if val == 'TN': return 'color: black; font-weight: bold'
+                return ''
+
+            return df_to_style.style.apply(highlight_days, axis=1).map(color_text_unav)
+
+        st.write("**Podgląd dni i zmian (kolory):**")
+        st.dataframe(style_unav(df), use_container_width=True)
 
         # Definicja dropdownów dla każdego dnia z kolorowymi kropkami
         day_config = {}
