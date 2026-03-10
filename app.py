@@ -192,7 +192,45 @@ elif menu == "Niedostępności (Urlopy/L4)":
         for eid, d, t in unav:
             if eid in reverse_emps: df.at[reverse_emps[eid], str(d)] = t
             
-        edited = st.data_editor(df, use_container_width=True)
+        # --- Kolorowanie i Skonfigurowanie Wyboru ---
+        pl_holidays = holidays.Poland(years=vr)
+        
+        def highlight_days(row):
+            styles = []
+            for col in row.index:
+                try:
+                    d_int = int(col)
+                    dt = date(vr, vm, d_int)
+                    if dt.weekday() == 6 or dt in pl_holidays: # Niedziela / Święto
+                        styles.append('background-color: #ffb3b3') # Czerwony
+                    elif dt.weekday() == 5: # Sobota
+                        styles.append('background-color: #b3ffb3') # Zielony
+                    else:
+                        styles.append('')
+                except:
+                    styles.append('')
+            return styles
+
+        # Definicja dropdownów dla każdego dnia
+        day_config = {
+            str(d): st.column_config.SelectboxColumn(
+                label=str(d),
+                width="small",
+                options=['', 'W', 'U', 'CH', 'R', 'P', 'N', 'NR', 'NP', 'NN', 'TR', 'TP', 'TN'],
+                required=False
+            ) for d in range(1, num_days + 1)
+        }
+        
+        # Stosujemy style
+        styled_df = df.style.apply(highlight_days, axis=1)
+
+        edited = st.data_editor(
+            styled_df, 
+            use_container_width=True, 
+            column_config=day_config,
+            key="unav_editor"
+        )
+        
         if st.button("Zapisz"):
             data = []
             for name, row in edited.iterrows():
