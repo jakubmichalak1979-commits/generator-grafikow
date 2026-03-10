@@ -13,6 +13,7 @@ from email.mime.base import MIMEBase
 from email import encoders
 import os
 import extra_streamlit_components as stx
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Generator Grafików Pro", layout="wide", initial_sidebar_state="expanded")
 
@@ -28,15 +29,19 @@ except Exception as e:
 cookie_manager = stx.CookieManager(key="cm_global")
 
 def check_cookies():
+    # Cookie manager needs a moment to sync with browser
     creds = cookie_manager.get("remember_creds")
     if creds and "|" in creds and not st.session_state['authenticated']:
-        saved_user, saved_pass = creds.split("|", 1)
-        user = db.verify_user(saved_user, saved_pass)
-        if user:
-            st.session_state['authenticated'] = True
-            st.session_state['user_role'] = user.role
-            st.session_state['username'] = user.username
-            return True
+        try:
+            saved_user, saved_pass = creds.split("|", 1)
+            user = db.verify_user(saved_user, saved_pass)
+            if user:
+                st.session_state['authenticated'] = True
+                st.session_state['user_role'] = user.role
+                st.session_state['username'] = user.username
+                return True
+        except:
+            pass
     return False
 
 # --- Authentication ---
@@ -47,7 +52,8 @@ if 'authenticated' not in st.session_state:
 
 # Auto-login check
 if not st.session_state['authenticated']:
-    check_cookies()
+    if check_cookies():
+        st.rerun()
 
 def login():
     st.title("🔒 Logowanie do Systemu")
@@ -79,6 +85,29 @@ def login():
 if not st.session_state['authenticated']:
     login()
     st.stop()
+
+# --- Custom CSS for Printing ---
+st.markdown("""
+<style>
+@media print {
+    [data-testid="stSidebar"] {
+        display: none;
+    }
+    .stAppHeader {
+        display: none;
+    }
+    .stButton {
+        display: none;
+    }
+    .main .block-container {
+        padding-top: 0rem;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+def trigger_print():
+    components.html("<script>window.print()</script>", height=0)
 
 # --- Helpers ---
 
@@ -117,8 +146,6 @@ def send_email_with_attachments(to_email, subject, body, attachments):
         st.error(f"Błąd wysyłki: {e}")
         return False
 
-import os
-
 # --- Main App ---
 
 st.sidebar.title(f"Witaj, {st.session_state['username']}")
@@ -131,7 +158,7 @@ st.title("📅 Generator Grafików Pracy Online")
 
 locations = db.get_locations()
 loc_dict = {name: id for id, name in locations}
-selected_loc_name = st.sidebar.selectbox("Wybierz Obiekt", list(loc_dict.keys()))
+selected_loc_name = st.sidebar.selectbox("Wybierz Obiekt", list(loc_dict.keys()), key="selected_location_name")
 location_id = loc_dict[selected_loc_name]
 
 st.sidebar.divider()
@@ -145,19 +172,46 @@ menu = st.sidebar.radio("Nawigacja", menu_options)
 if menu == "Generowanie Grafiku":
     st.header(f"Generuj nowy grafik: {selected_loc_name}")
     col1, col2 = st.columns(2)
-    rok = col1.number_input("Rok", 2020, 2030, date.today().year)
-    miesiac = col2.number_input("Miesiąc", 1, 12, date.today().month)
+    
+    if 'selected_year' not in st.session_state:
+        st.session_state['selected_year'] = date.today().year
+    if 'selected_month' not in st.session_state:
+        st.session_state['selected_month'] = date.today().month
+
+    rok = col1.number_input("Rok", 2020, 2030, st.session_state['selected_year'], key="main_rok")
+    miesiac = col2.number_input("Miesiąc", 1, 12, st.session_state['selected_month'], key="main_miesiac")
+    
+    st.session_state['selected_year'] = rok
+    st.session_state['selected_month'] = miesiac
         
     emps_master = db.get_employees(location_id)
     if not emps_master:
         st.warning("Dodaj pracowników!")
     else:
-        st.subheader("Wybierz pracowników")
+        # Check for existing DRAFT or APPROVED
+        if 'active_schedule' not in st.session_state:
+            saved_draft = db.get_schedule(rok, miesiac, location_id, status="DRAFT")
+            saved_approved = db.get_schedule(rok, miesiac, location_id, status="APPROVED")
+            
+            if saved_draft:
+                st.warning("⚠️ Masz zapisany roboczy grafik (DRAFT) dla tego miesiąca.")
+                if st.button("Wczytaj DRAFT do edycji"):
+                    st.session_state['active_schedule'] = saved_draft
+                    st.session_state['schedule_status'] = "DRAFT"
+            
+            elif saved_approved:
+                st.success("✅ Istnieje zatwierdzony grafik (APPROVED) dla tego miesiąca.")
+                if st.button("Wczytaj APPROVED do podglądu/edycji"):
+                    st.session_state['active_schedule'] = saved_approved
+                    st.session_state['schedule_status'] = "APPROVED"
+
+        st.divider()
+        st.subheader("Opcje generowania")
         df_emps = pd.DataFrame([{"Imię i Nazwisko": e[1], "Uwzględnij": True} for e in emps_master])
-        edited_emps = st.data_editor(df_emps, hide_index=True)
+        edited_emps = st.data_editor(df_emps, hide_index=True, key=f"emp_sel_{rok}_{miesiac}")
         included_names = edited_emps[edited_emps["Uwzględnij"] == True]["Imię i Nazwisko"].tolist()
         
-        if st.button("Uruchom Generator", type="primary"):
+        if st.button("Uruchom Generator (Nowa Propozycja)", type="primary"):
             with st.spinner("Przeliczanie..."):
                 emps = [e for e in emps_master if e[1] in included_names]
                 emp_dict = {i: name for i, (eid, name, email, s_order) in enumerate(emps)}
@@ -170,158 +224,209 @@ if menu == "Generowanie Grafiku":
                         idx = m[0]
                         if idx not in unavailabilities: unavailabilities[idx] = {}
                         unavailabilities[idx][d] = t
+                
                 generator = ScheduleGenerator(rok, miesiac, [emp_dict[i] for i in range(len(emps))], unavailabilities, location_name=selected_loc_name)
                 wynik = generator.solve()
-                
                 if wynik:
-                    st.success("Wygenerowano propozycję grafiku!")
-                    
-                    # Konwersja na DataFrame (wymuszamy stringi jako nazwy kolumn dla stabilności)
-                    days_list = sorted(list(wynik[list(wynik.keys())[0]].keys()))
-                    days_list_str = [str(d) for d in days_list]
-                    # Konwertujemy klucze w słowniku na stringi przed stworzeniem DataFrame
-                    wynik_str_keys = {name: {str(d): v for d, v in d_shifts.items()} for name, d_shifts in wynik.items()}
-                    df_wynik = pd.DataFrame.from_dict(wynik_str_keys, orient='index', columns=days_list_str)
-                    
-                    # --- Obliczenie Statystyk (Podsumowanie na prawo) ---
-                    pl_holidays = holidays.Poland(years=rok)
-                    
-                    praca_list = []
-                    wolne_list = []
-                    absencja_list = []
-                    we_list = []
-                    
-                    for name, row in df_wynik.iterrows():
-                        row_list = row.tolist()
-                        praca_list.append(sum(1 for x in row_list if x in ['R', 'P', 'N']))
-                        wolne_list.append(sum(1 for x in row_list if x == 'W'))
-                        absencja_list.append(sum(1 for x in row_list if x in ['U', 'CH']))
-                        
-                        we_count = 0
-                        for i, shift in enumerate(row_list):
-                            day = days_list[i]
-                            dt = date(rok, miesiac, day)
-                            if (dt.weekday() >= 5 or dt in pl_holidays) and shift in ['R', 'P', 'N']:
-                                we_count += 1
-                        we_list.append(we_count)
-                    
-                    # Dodanie kolumn podsumowania do DataFrame
-                    df_wynik["SUMA: Praca"] = praca_list
-                    df_wynik["SUMA: Wolne"] = wolne_list
-                    df_wynik["SUMA: U/CH"] = absencja_list
-                    df_wynik["SUMA: WE/ŚW"] = we_list
-
-                    st.subheader("Edycja i weryfikacja grafiku")
-                    
-                    # --- Kolorowy Podgląd (Informacyjny) ---
-                    def style_preview(df_to_style):
-                        # Funkcja do kolorowania tła (weekendy)
-                        def highlight_days_gen(row):
-                            styles = []
-                            for col in row.index:
-                                try:
-                                    d_int = int(col)
-                                    dt = date(rok, miesiac, d_int)
-                                    if dt.weekday() == 6 or dt in pl_holidays:
-                                        styles.append('background-color: #ffb3b3')
-                                    elif dt.weekday() == 5:
-                                        styles.append('background-color: #b3ffb3')
-                                    else: styles.append('')
-                                except: styles.append('')
-                            return styles
-                        
-                        # Funkcja do kolorowania czcionki (zmiany)
-                        def color_text(val):
-                            if val == 'R': return 'color: green; font-weight: bold'
-                            if val == 'P': return 'color: blue; font-weight: bold'
-                            if val in ['W', 'U', 'CH']: return 'color: red; font-weight: bold'
-                            if val == 'N': return 'color: black; font-weight: bold'
-                            return ''
-
-                        return df_to_style.style.apply(highlight_days_gen, axis=1).map(color_text)
-
-                    st.write("💡 **Legenda kolorów (Podgląd):** Zielony = Sobota, Czerwony = Niedziela/Święto. Litery: R=zielony, P=niebieski, W/U/CH=czerwony")
-                    st.dataframe(style_preview(df_wynik[days_list_str]), use_container_width=True)
-
-                    # --- Edytor z Podsumowaniem po prawej ---
-                    shift_options = ['R', 'P', 'N', 'W', 'U', 'CH']
-                    col_config = {}
-                    for d in days_list:
-                        d_s = str(d)
-                        dt = date(rok, miesiac, d)
-                        label = d_s
-                        if dt.weekday() == 6 or dt in pl_holidays:
-                            label = f"🔴 {d_s}"
-                        elif dt.weekday() == 5:
-                            label = f"🟢 {d_s}"
-                        col_config[d_s] = st.column_config.SelectboxColumn(label, options=shift_options, width="small")
-
-                    # Blokujemy edycję kolumn podsumowania
-                    for col in ["SUMA: Praca", "SUMA: Wolne", "SUMA: U/CH", "SUMA: WE/ŚW"]:
-                        col_config[col] = st.column_config.Column(col, disabled=True, width="small")
-                    
-                    edited_df = st.data_editor(df_wynik, column_config=col_config, key="schedule_editor", use_container_width=True)
-                    
-                    # --- Walidacja Kodeksu Pracy ---
-                    warnings = []
-                    for name, row in edited_df[days_list_str].iterrows():
-                        row_list = row.tolist()
-                        for i in range(len(row_list) - 1):
-                            curr = row_list[i]
-                            nxt = row_list[i+1]
-                            if (curr == 'P' and nxt == 'R') or (curr == 'N' and nxt == 'R') or (curr == 'N' and nxt == 'P'):
-                                warnings.append(f"⚠️ **{name}**: Brak 11h odpoczynku między dniem {i+1} a {i+2} ({curr} -> {nxt})")
-                        
-                        work_streak = 0
-                        for i, shift in enumerate(row_list):
-                            if shift in ['R', 'P', 'N']:
-                                work_streak += 1
-                                if work_streak > 6:
-                                    warnings.append(f"⚠️ **{name}**: Ponad 6 dni pracy z rzędu (dzień {i+1})")
-                            else: work_streak = 0
-
-                    if warnings:
-                        for w in warnings: st.warning(w)
-                    else: st.success("✅ Grafik zgodny z podstawowymi zasadami odpoczynku.")
-
-                    # Przyciski akcji
-                    c1, c2 = st.columns(2)
-                    if c1.button("Zapisz jako Roboczy (DRAFT)"):
-                        new_wynik = edited_df[days_list_str].to_dict(orient='index')
-                        # Zamieniamy klucze z powrotem na inty dla bazy danych
-                        new_wynik_int = {name: {int(d): v for d, v in days.items()} for name, days in new_wynik.items()}
-                        db.save_schedule(new_wynik_int, rok, miesiac, emp_name_to_id, location_id, status="DRAFT", user=st.session_state['username'])
-                        st.success("Grafik zapisany jako Roboczy!")
-
-                    if st.session_state['user_role'] == 'admin':
-                        if c2.button("Zatwierdź Grafik (APPROVED)", type="primary"):
-                            new_wynik = edited_df[days_list_str].to_dict(orient='index')
-                            new_wynik_int = {name: {int(d): v for d, v in days.items()} for name, days in new_wynik.items()}
-                            db.save_schedule(new_wynik_int, rok, miesiac, emp_name_to_id, location_id, status="APPROVED", user=st.session_state['username'])
-                            st.success("GRAFIK ZATWIERDZONY!")
-                            
-                            fname_x = f"grafik_{miesiac}_{rok}.xlsx"
-                            fname_p = f"grafik_{miesiac}_{rok}.pdf"
-                            export_schedule(new_wynik_int, rok, miesiac, fname_x)
-                            export_schedule_pdf(new_wynik_int, rok, miesiac, fname_p)
-                            st.write("Pobierz gotowe pliki:")
-                            ca, cb = st.columns(2)
-                            with open(fname_x, "rb") as f: ca.download_button("Excel", f, fname_x)
-                            with open(fname_p, "rb") as f: cb.download_button("PDF", f, fname_p)
+                    st.session_state['active_schedule'] = wynik
+                    st.session_state['schedule_status'] = "NEW"
                 else:
                     st.error("Brak rozwiązania spełniającego zasady.")
 
+        if 'active_schedule' in st.session_state:
+            wynik = st.session_state['active_schedule']
+            emp_name_to_id = {name: eid for eid, name, email, s_order in emps_master}
+            pl_holidays = holidays.Poland(years=rok)
+            
+            days_in_month = calendar.monthrange(rok, miesiac)[1]
+            days_list = list(range(1, days_in_month + 1))
+            days_list_str = [str(d) for d in days_list]
+            
+            # Wymuszamy aby wszyscy pracownicy byli w tabeli
+            for e in emps_master:
+                if e[1] not in wynik:
+                    wynik[e[1]] = {d: "" for d in days_list}
+            
+            # Upewniamy się, że dni są kluczami numerycznymi
+            wynik_fixed = {name: {int(d): v for d, v in days.items()} for name, days in wynik.items()}
+            wynik_str_keys = {name: {str(d): v for d, v in d_shifts.items()} for name, d_shifts in wynik_fixed.items()}
+            df_wynik = pd.DataFrame.from_dict(wynik_str_keys, orient='index', columns=days_list_str)
+            df_wynik = df_wynik.reindex([e[1] for e in emps_master])
+
+            # --- Obliczenie Statystyk (Podsumowanie na prawo) ---
+            praca_list, wolne_list, absencja_list, we_list = [], [], [], []
+            for name, row in df_wynik.iterrows():
+                row_list = row.fillna('').tolist()
+                praca_list.append(sum(1 for x in row_list if x in ['R', 'P', 'N']))
+                wolne_list.append(sum(1 for x in row_list if x == 'W'))
+                absencja_list.append(sum(1 for x in row_list if x in ['U', 'CH']))
+                we_count = 0
+                for i, shift in enumerate(row_list):
+                    day_val = days_list[i]
+                    dt = date(rok, miesiac, day_val)
+                    if (dt.weekday() >= 5 or dt in pl_holidays) and shift in ['R', 'P', 'N']:
+                        we_count += 1
+                we_list.append(we_count)
+            
+            df_wynik["SUMA: Praca"] = praca_list
+            df_wynik["SUMA: Wolne"] = wolne_list
+            df_wynik["SUMA: U/CH"] = absencja_list
+            df_wynik["SUMA: WE/ŚW"] = we_list
+
+            st.subheader("Edycja i weryfikacja grafiku")
+
+            def style_preview(df_to_style):
+                def highlight_days_gen(row):
+                    styles = []
+                    for col in row.index:
+                        try:
+                            d_int = int(col)
+                            dt = date(rok, miesiac, d_int)
+                            if dt.weekday() == 6 or dt in pl_holidays:
+                                styles.append('background-color: #ffb3b3')
+                            elif dt.weekday() == 5:
+                                styles.append('background-color: #b3ffb3')
+                            else: styles.append('')
+                        except: styles.append('')
+                    return styles
+                def color_text(val):
+                    if val == 'R': return 'color: green; font-weight: bold'
+                    if val == 'P': return 'color: blue; font-weight: bold'
+                    if val in ['W', 'U', 'CH']: return 'color: red; font-weight: bold'
+                    if val == 'N': return 'color: black; font-weight: bold'
+                    return ''
+                return df_to_style.style.apply(highlight_days_gen, axis=1).map(color_text)
+
+            st.write("💡 **Legenda kolorów (Podgląd):** Zielony = Sobota, Czerwony = Niedziela/Święto. Litery: R=zielony, P=niebieski, W/U/CH=czerwony")
+            st.dataframe(style_preview(df_wynik[days_list_str]), use_container_width=True)
+
+            # --- Edytor z Podsumowaniem po prawej ---
+            shift_options = ['', 'R', 'P', 'N', 'W', 'U', 'CH']
+            col_config = {}
+            for d in days_list:
+                d_s = str(d); dt = date(rok, miesiac, d)
+                label = f"🔴 {d_s}" if (dt.weekday() == 6 or dt in pl_holidays) else (f"🟢 {d_s}" if dt.weekday() == 5 else d_s)
+                col_config[d_s] = st.column_config.SelectboxColumn(label, options=shift_options, width="small")
+
+            for col in ["SUMA: Praca", "SUMA: Wolne", "SUMA: U/CH", "SUMA: WE/ŚW"]:
+                col_config[col] = st.column_config.Column(col, disabled=True, width="small")
+            
+            edited_df = st.data_editor(df_wynik, column_config=col_config, key=f"edit_{rok}_{miesiac}", use_container_width=True)
+            
+            # Walidacja
+            warnings = []
+            for name, row in edited_df[days_list_str].iterrows():
+                row_list = row.fillna('').tolist()
+                for i in range(len(row_list) - 1):
+                    if (row_list[i], row_list[i+1]) in [('P', 'R'), ('N', 'R'), ('N', 'P')]:
+                        warnings.append(f"⚠️ **{name}**: Brak 11h odpoczynku między dniem {i+1} a {i+2}")
+                work_streak = 0
+                for i, shift in enumerate(row_list):
+                    if shift in ['R', 'P', 'N']:
+                        work_streak += 1
+                        if work_streak > 6: warnings.append(f"⚠️ **{name}**: Ponad 6 dni pracy z rzędu (dzień {i+1})")
+                    else: work_streak = 0
+
+            if warnings:
+                for w in warnings: st.warning(w)
+            else: st.success("✅ Grafik zgodny z podstawowymi zasadami odpoczynku.")
+
+            c1, c2 = st.columns(2)
+            if c1.button("Zapisz jako Roboczy (DRAFT)"):
+                new_w = edited_df[days_list_str].to_dict(orient='index')
+                new_w_int = {nm: {int(dk): dv for dk, dv in ds.items()} for nm, ds in new_w.items()}
+                db.save_schedule(new_w_int, rok, miesiac, emp_name_to_id, location_id, status="DRAFT", user=st.session_state['username'])
+                st.success("Grafik zapisany jako Roboczy (DRAFT)!")
+
+            if st.session_state['user_role'] == 'admin':
+                if c2.button("Zatwierdź Grafik (APPROVED)", type="primary"):
+                    new_w = edited_df[days_list_str].to_dict(orient='index')
+                    new_w_int = {nm: {int(dk): dv for dk, dv in ds.items()} for nm, ds in new_w.items()}
+                    db.save_schedule(new_w_int, rok, miesiac, emp_name_to_id, location_id, status="APPROVED", user=st.session_state['username'])
+                    st.success("GRAFIK ZATWIERDZONY!")
+                    fx, fp = f"grafik_{miesiac}_{rok}.xlsx", f"grafik_{miesiac}_{rok}.pdf"
+                    export_schedule(new_w_int, rok, miesiac, fx); export_schedule_pdf(new_w_int, rok, miesiac, fp)
+                    ca, cb = st.columns(2)
+                    with open(fx, "rb") as f: ca.download_button("Pobierz Excel", f, fx)
+                    with open(fp, "rb") as f: cb.download_button("Pobierz PDF", f, fp)
+            
+            st.divider()
+            if st.button("Drukuj obecny widok (Podgląd Draftu)"):
+                new_w = edited_df[days_list_str].to_dict(orient='index')
+                new_w_int = {nm: {int(dk): dv for dk, dv in ds.items()} for nm, ds in new_w.items()}
+                f_x = f"roboczy_{miesiac}.xlsx"; f_p = f"roboczy_{miesiac}.pdf"
+                export_schedule(new_w_int, rok, miesiac, f_x); export_schedule_pdf(new_w_int, rok, miesiac, f_p)
+                da, db_p = st.columns(2)
+                with open(f_x, "rb") as f: da.download_button("Excel (Draft)", f, f_x)
+                with open(f_p, "rb") as f: db_p.download_button("PDF (Draft)", f, f_p)
+            
+            if st.button("🖨️ DRUKUJ GRAFIK (Bezpośrednio)", use_container_width=True):
+                trigger_print()
+
 elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'admin':
     st.header("Zarządzanie grafikami")
-    colA, colB = st.columns(2)
-    r = colA.number_input("Rok", 2020, 2030, date.today().year, key="arc_r")
-    m = colB.number_input("Miesiąc", 1, 12, date.today().month, key="arc_m")
     
-    # This section would normally show 'DRAFT' schedules and allow approval
-    st.info("Tutaj będziesz mógł zatwierdzać propozycje grafików od użytkowników.")
-    if st.button("Pokaż grafik (Zatwierdzony)"):
-        # Placeholder for viewing approved schedule
-        st.write("Podgląd archiwum...")
+    # --- PRZEGLĄD WSZYSTKICH DRAFTÓW ---
+    st.subheader("❗ Grafiki czekające na zatwierdzenie (Wszystkie Obiekty)")
+    all_drafts = db.get_all_schedules_with_status("DRAFT")
+    if all_drafts:
+        for yr, mo, loc_id, loc_name in all_drafts:
+            c1, c2 = st.columns([3, 1])
+            c1.info(f"📅 **{loc_name}** - Miesiąc: {mo}/{yr}")
+            if c2.button(f"Wczytaj do edycji", key=f"ar_load_{yr}_{mo}_{loc_id}"):
+                st.session_state['selected_location_name'] = loc_name
+                st.session_state['selected_year'] = yr
+                st.session_state['selected_month'] = mo
+                st.session_state['active_schedule'] = db.get_schedule(yr, mo, loc_id, status="DRAFT")
+                st.session_state['schedule_status'] = "DRAFT"
+                st.success(f"Wczytano {loc_name}. Przejdź do 'Generowanie Grafiku'.")
+    else:
+        st.success("Brak oczekujących draftów.")
+
+    st.divider()
+    st.subheader("🔍 Przeglądaj Archiwum / Wybrany okres")
+    colA, colB = st.columns(2)
+    r_ar = colA.number_input("Rok", 2020, 2030, st.session_state.get('selected_year', date.today().year), key="ar_r")
+    m_ar = colB.number_input("Miesiąc", 1, 12, st.session_state.get('selected_month', date.today().month), key="ar_m")
+    
+    draft = db.get_schedule(r_ar, m_ar, location_id, status="DRAFT")
+    approved = db.get_schedule(r_ar, m_ar, location_id, status="APPROVED")
+    
+    if draft:
+        st.subheader("📝 Grafik Roboczy (DRAFT) dla obecnego obiektu")
+        st.info("Ten grafik czeka na weryfikację.")
+        if st.button("Pobierz Draft do edycji w generatorze"):
+            st.session_state['active_schedule'] = draft
+            st.session_state['schedule_status'] = "DRAFT"
+            st.session_state['selected_year'] = r_ar
+            st.session_state['selected_month'] = m_ar
+            st.success("Wczytano! Przejdź teraz do zakładki 'Generowanie Grafiku'.")
+
+    if approved:
+        st.subheader("✅ Grafik Zatwierdzony (Archiwum) dla obecnego obiektu")
+        
+        # Display the approved schedule in a nice table
+        pl_holidays = holidays.Poland(years=r_ar)
+        days_in_month = calendar.monthrange(r_ar, m_ar)[1]
+        days_list_str = [str(d) for d in range(1, days_in_month + 1)]
+        
+        # Fix keys and create DF
+        approved_fixed = {name: {str(d): v for d, v in days.items()} for name, days in approved.items()}
+        df_app = pd.DataFrame.from_dict(approved_fixed, orient='index', columns=days_list_str)
+        
+        st.dataframe(df_app, use_container_width=True)
+
+        ca, cb, cc = st.columns(3)
+        if ca.button("🖨️ Drukuj Approved", use_container_width=True):
+            trigger_print()
+            
+        f1, f2 = f"archiwum_{m_ar}_{r_ar}.xlsx", f"archiwum_{m_ar}_{r_ar}.pdf"
+        export_schedule(approved, r_ar, m_ar, f1); export_schedule_pdf(approved, r_ar, m_ar, f2)
+        with open(f1, "rb") as f: cb.download_button("Pobierz Excel", f, f1, use_container_width=True)
+        with open(f2, "rb") as f: cc.download_button("Pobierz PDF", f, f2, use_container_width=True)
+    
+    if not draft and not approved:
+        st.info(f"Brak zapisanych grafików dla obiektu {selected_loc_name} w okresie {m_ar}/{r_ar}.")
 
 elif menu == "Niedostępności (Urlopy/L4)":
     st.header("Grafik nieobecności")

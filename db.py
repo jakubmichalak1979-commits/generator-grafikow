@@ -150,6 +150,32 @@ def save_schedule(schedule_dict, year, month, emp_name_to_id, location_id, statu
     db.commit()
     db.close()
 
+def get_schedule(year, month, location_id, status="APPROVED"):
+    db = SessionLocal()
+    rows = db.query(Employee.name, Schedule.day, Schedule.shift).join(Employee).filter(
+        Schedule.year == year,
+        Schedule.month == month,
+        Schedule.location_id == location_id,
+        Schedule.status == status
+    ).all()
+    db.close()
+    
+    schedule = {}
+    for name, d, s in rows:
+        if name not in schedule: schedule[name] = {}
+        schedule[name][d] = s
+    return schedule
+
+def get_all_schedules_with_status(status="DRAFT"):
+    db = SessionLocal()
+    # Get distinct year, month, location_id for a given status
+    # Order by year desc, month desc
+    results = db.query(Schedule.year, Schedule.month, Location.id, Location.name).join(Location).filter(
+        Schedule.status == status
+    ).group_by(Schedule.year, Schedule.month, Location.id, Location.name).order_by(Schedule.year.desc(), Schedule.month.desc()).all()
+    db.close()
+    return results
+
 def get_all_stats(location_id=None):
     db = SessionLocal()
     from sqlalchemy import func
