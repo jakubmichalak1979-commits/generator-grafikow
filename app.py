@@ -176,9 +176,10 @@ if menu == "Generowanie Grafiku":
                 if wynik:
                     st.success("Wygenerowano propozycję grafiku!")
                     
-                    # Konwersja na DataFrame
+                    # Konwersja na DataFrame (wymuszamy stringi jako nazwy kolumn dla stabilności)
                     days_list = sorted(list(wynik[list(wynik.keys())[0]].keys()))
-                    df_wynik = pd.DataFrame.from_dict(wynik, orient='index', columns=days_list)
+                    days_list_str = [str(d) for d in days_list]
+                    df_wynik = pd.DataFrame.from_dict(wynik, orient='index', columns=days_list_str)
                     
                     # --- Obliczenie Statystyk (Podsumowanie na prawo) ---
                     pl_holidays = holidays.Poland(years=rok)
@@ -226,13 +227,13 @@ if menu == "Generowanie Grafiku":
                         return styles
 
                     st.write("💡 **Legenda kolorów (tylko podgląd):** Zielony = Sobota, Czerwony = Niedziela/Święto")
-                    st.dataframe(df_wynik[days_list].style.apply(highlight_days_gen, axis=1), use_container_width=True)
+                    st.dataframe(df_wynik[days_list_str].style.apply(highlight_days_gen, axis=1), use_container_width=True)
 
                     # --- Edytor z Podsumowaniem po prawej ---
                     shift_options = ['R', 'P', 'N', 'W', 'U', 'CH']
                     col_config = {
-                        str(d): st.column_config.SelectboxColumn(str(d), options=shift_options, width="small") 
-                        for d in days_list
+                        d_s: st.column_config.SelectboxColumn(d_s, options=shift_options, width="small") 
+                        for d_s in days_list_str
                     }
                     # Blokujemy edycję kolumn podsumowania
                     for col in ["SUMA: Praca", "SUMA: Wolne", "SUMA: U/CH", "SUMA: WE/ŚW"]:
@@ -242,7 +243,7 @@ if menu == "Generowanie Grafiku":
                     
                     # --- Walidacja Kodeksu Pracy ---
                     warnings = []
-                    for name, row in edited_df[days_list].iterrows():
+                    for name, row in edited_df[days_list_str].iterrows():
                         row_list = row.tolist()
                         for i in range(len(row_list) - 1):
                             curr = row_list[i]
@@ -265,20 +266,23 @@ if menu == "Generowanie Grafiku":
                     # Przyciski akcji
                     c1, c2 = st.columns(2)
                     if c1.button("Zapisz jako Roboczy (DRAFT)"):
-                        new_wynik = edited_df[days_list].to_dict(orient='index')
-                        db.save_schedule(new_wynik, rok, miesiac, emp_name_to_id, location_id, status="DRAFT", user=st.session_state['username'])
+                        new_wynik = edited_df[days_list_str].to_dict(orient='index')
+                        # Zamieniamy klucze z powrotem na inty dla bazy danych
+                        new_wynik_int = {name: {int(d): v for d, v in days.items()} for name, days in new_wynik.items()}
+                        db.save_schedule(new_wynik_int, rok, miesiac, emp_name_to_id, location_id, status="DRAFT", user=st.session_state['username'])
                         st.success("Grafik zapisany jako Roboczy!")
 
                     if st.session_state['user_role'] == 'admin':
                         if c2.button("Zatwierdź Grafik (APPROVED)", type="primary"):
-                            new_wynik = edited_df[days_list].to_dict(orient='index')
-                            db.save_schedule(new_wynik, rok, miesiac, emp_name_to_id, location_id, status="APPROVED", user=st.session_state['username'])
+                            new_wynik = edited_df[days_list_str].to_dict(orient='index')
+                            new_wynik_int = {name: {int(d): v for d, v in days.items()} for name, days in new_wynik.items()}
+                            db.save_schedule(new_wynik_int, rok, miesiac, emp_name_to_id, location_id, status="APPROVED", user=st.session_state['username'])
                             st.success("GRAFIK ZATWIERDZONY!")
                             
                             fname_x = f"grafik_{miesiac}_{rok}.xlsx"
                             fname_p = f"grafik_{miesiac}_{rok}.pdf"
-                            export_schedule(new_wynik, rok, miesiac, fname_x)
-                            export_schedule_pdf(new_wynik, rok, miesiac, fname_p)
+                            export_schedule(new_wynik_int, rok, miesiac, fname_x)
+                            export_schedule_pdf(new_wynik_int, rok, miesiac, fname_p)
                             st.write("Pobierz gotowe pliki:")
                             ca, cb = st.columns(2)
                             with open(fname_x, "rb") as f: ca.download_button("Excel", f, fname_x)
