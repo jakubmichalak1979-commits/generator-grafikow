@@ -141,25 +141,76 @@ if menu == "Generowanie Grafiku":
                         idx = m[0]
                         if idx not in unavailabilities: unavailabilities[idx] = {}
                         unavailabilities[idx][d] = t
-                
                 generator = ScheduleGenerator(rok, miesiac, [emp_dict[i] for i in range(len(emps))], unavailabilities, location_name=selected_loc_name)
                 wynik = generator.solve()
                 
                 if wynik:
-                    status = "DRAFT" if st.session_state['user_role'] != 'admin' else "APPROVED"
-                    db.save_schedule(wynik, rok, miesiac, emp_name_to_id, location_id, status=status, user=st.session_state['username'])
-                    st.success(f"Grafik zapisany jako **{status}**!")
+                    st.success("Wygenerowano propozycję grafiku!")
                     
-                    # Manual export option
-                    fname_x = f"grafik_{miesiac}_{rok}.xlsx"
-                    fname_p = f"grafik_{miesiac}_{rok}.pdf"
-                    export_schedule(wynik, rok, miesiac, fname_x)
-                    export_schedule_pdf(wynik, rok, miesiac, fname_p)
+                    # Konwersja na DataFrame do edycji
+                    days_list = sorted(list(wynik[list(wynik.keys())[0]].keys()))
+                    df_wynik = pd.DataFrame.from_dict(wynik, orient='index', columns=days_list)
                     
-                    st.write("Pobierz:")
+                    st.subheader("Edycja i weryfikacja grafiku")
+                    st.info("Możesz teraz ręcznie zmienić zmiany. Pod tabelą zobaczysz ostrzeżenia, jeśli złamiesz zasady Kodeksu Pracy.")
+                    
+                    # Konfiguracja kolumn (dropdowny)
+                    shift_options = ['R', 'P', 'N', 'W', 'U', 'CH']
+                    col_config = {
+                        str(d): st.column_config.SelectboxColumn(str(d), options=shift_options, width="small") 
+                        for d in days_list
+                    }
+                    
+                    edited_df = st.data_editor(df_wynik, column_config=col_config, key="schedule_editor")
+                    
+                    # --- Walidacja Kodeksu Pracy ---
+                    warnings = []
+                    for name, row in edited_df.iterrows():
+                        row_list = row.tolist()
+                        for i in range(len(row_list) - 1):
+                            curr = row_list[i]
+                            nxt = row_list[i+1]
+                            # Zasada 11h odpoczynku (Forbidden: P->R, N->R, N->P)
+                            if (curr == 'P' and nxt == 'R') or (curr == 'N' and nxt == 'R') or (curr == 'N' and nxt == 'P'):
+                                warnings.append(f"⚠️ **{name}**: Brak 11h odpoczynku między dniem {i+1} a {i+2} ({curr} -> {nxt})")
+                        
+                        # Zasada max 6 dni pracy pod rząd
+                        work_streak = 0
+                        for i, shift in enumerate(row_list):
+                            if shift in ['R', 'P', 'N']:
+                                work_streak += 1
+                                if work_streak > 6:
+                                    warnings.append(f"⚠️ **{name}**: Ponad 6 dni pracy z rzędu (dzień {i+1})")
+                            else:
+                                work_streak = 0
+
+                    if warnings:
+                        for w in warnings: st.warning(w)
+                    else:
+                        st.success("✅ Grafik zgodny z podstawowymi zasadami odpoczynku.")
+
+                    # Przyciski akcji
                     c1, c2 = st.columns(2)
-                    with open(fname_x, "rb") as f: c1.download_button("Excel", f, fname_x)
-                    with open(fname_p, "rb") as f: c2.download_button("PDF", f, fname_p)
+                    if c1.button("Zapisz jako Roboczy (DRAFT)"):
+                        new_wynik = edited_df.to_dict(orient='index')
+                        db.save_schedule(new_wynik, rok, miesiac, emp_name_to_id, location_id, status="DRAFT", user=st.session_state['username'])
+                        st.success("Grafik zapisany jako Roboczy!")
+
+                    if st.session_state['user_role'] == 'admin':
+                        if c2.button("Zatwierdź Grafik (APPROVED)", type="primary"):
+                            new_wynik = edited_df.to_dict(orient='index')
+                            db.save_schedule(new_wynik, rok, miesiac, emp_name_to_id, location_id, status="APPROVED", user=st.session_state['username'])
+                            st.success("GRAFIK ZATWIERDZONY!")
+                            
+                            # Export po zatwierdzeniu
+                            fname_x = f"grafik_{miesiac}_{rok}.xlsx"
+                            fname_p = f"grafik_{miesiac}_{rok}.pdf"
+                            export_schedule(new_wynik, rok, miesiac, fname_x)
+                            export_schedule_pdf(new_wynik, rok, miesiac, fname_p)
+                            st.write("Pobierz gotowe pliki:")
+                            ca, cb = st.columns(2)
+                            with open(fname_x, "rb") as f: ca.download_button("Excel", f, fname_x)
+                            with open(fname_p, "rb") as f: cb.download_button("PDF", f, fname_p)
                 else:
                     st.error("Brak rozwiązania spełniającego zasady.")
 
