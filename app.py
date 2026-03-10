@@ -131,8 +131,8 @@ if menu == "Generowanie Grafiku":
         if st.button("Uruchom Generator", type="primary"):
             with st.spinner("Przeliczanie..."):
                 emps = [e for e in emps_master if e[1] in included_names]
-                emp_dict = {i: name for i, (eid, name, email) in enumerate(emps)}
-                emp_name_to_id = {name: eid for eid, name, email in emps}
+                emp_dict = {i: name for i, (eid, name, email, s_order) in enumerate(emps)}
+                emp_name_to_id = {name: eid for eid, name, email, s_order in emps}
                 unav_rows = db.get_unavailabilities(rok, miesiac, location_id)
                 unavailabilities = {}
                 for eid, d, t in unav_rows:
