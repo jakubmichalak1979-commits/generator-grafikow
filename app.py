@@ -357,7 +357,10 @@ if menu == "Generowanie Grafiku":
 
             # --- STATIC PRINT TABLE (Hidden on Screen) ---
             st.markdown('<div class="print-only">', unsafe_allow_html=True)
-            st.write(f"### GRAFIK: {selected_loc_name} - {miesiac}/{rok}")
+            month_pl_names = ["", "STYCZEŃ", "LUTY", "MARZEC", "KWIECIEŃ", "MAJ", "CZERWIEC", 
+                              "LIPIEC", "SIERPIEŃ", "WRZESIEŃ", "PAŹDZIERNIK", "LISTOPAD", "GRUDZIEŃ"]
+            st.write(f"### GRAFIK - OBIEKT {selected_loc_name.upper()}")
+            st.write(f"### MIESIĄC {month_pl_names[miesiac]} ROK {rok}")
             # Include summary columns in print
             sum_cols = ["R", "P", "N", "W", "U", "CH", "S", "WE"]
             st.table(df_wynik[days_list_str + sum_cols])
@@ -408,7 +411,8 @@ if menu == "Generowanie Grafiku":
                     db.save_schedule(new_w_int, rok, miesiac, emp_name_to_id, location_id, status="APPROVED", user=st.session_state['username'])
                     st.success("GRAFIK ZATWIERDZONY!")
                     fx, fp = f"grafik_{miesiac}_{rok}.xlsx", f"grafik_{miesiac}_{rok}.pdf"
-                    export_schedule(new_w_int, rok, miesiac, fx); export_schedule_pdf(new_w_int, rok, miesiac, fp)
+                    export_schedule(new_w_int, rok, miesiac, fx, location_name=selected_loc_name)
+                    export_schedule_pdf(new_w_int, rok, miesiac, fp, location_name=selected_loc_name)
                     ca, cb = st.columns(2)
                     with open(fx, "rb") as f: ca.download_button("Pobierz Excel", f, fx)
                     with open(fp, "rb") as f: cb.download_button("Pobierz PDF", f, fp)
@@ -418,7 +422,8 @@ if menu == "Generowanie Grafiku":
                 new_w = edited_df[days_list_str].to_dict(orient='index')
                 new_w_int = {nm: {int(dk): dv for dk, dv in ds.items()} for nm, ds in new_w.items()}
                 f_x = f"roboczy_{miesiac}.xlsx"; f_p = f"roboczy_{miesiac}.pdf"
-                export_schedule(new_w_int, rok, miesiac, f_x); export_schedule_pdf(new_w_int, rok, miesiac, f_p)
+                export_schedule(new_w_int, rok, miesiac, f_x, location_name=selected_loc_name)
+                export_schedule_pdf(new_w_int, rok, miesiac, f_p, location_name=selected_loc_name)
                 da, db_p = st.columns(2)
                 with open(f_x, "rb") as f: da.download_button("Excel (Draft)", f, f_x)
                 with open(f_p, "rb") as f: db_p.download_button("PDF (Draft)", f, f_p)
@@ -481,7 +486,10 @@ elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'ad
 
         # --- STATIC PRINT TABLE (Hidden on Screen) ---
         st.markdown('<div class="print-only">', unsafe_allow_html=True)
-        st.write(f"### ZATWIERDZONY GRAFIK: {selected_loc_name} - {m_ar}/{r_ar}")
+        month_pl_names = ["", "STYCZEŃ", "LUTY", "MARZEC", "KWIECIEŃ", "MAJ", "CZERWIEC", 
+                          "LIPIEC", "SIERPIEŃ", "WRZESIEŃ", "PAŹDZIERNIK", "LISTOPAD", "GRUDZIEŃ"]
+        st.write(f"### ZATWIERDZONY GRAFIK - OBIEKT {selected_loc_name.upper()}")
+        st.write(f"### MIESIĄC {month_pl_names[m_ar]} ROK {r_ar}")
         st.table(df_app)
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -490,7 +498,8 @@ elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'ad
             trigger_print()
             
         f1, f2 = f"archiwum_{m_ar}_{r_ar}.xlsx", f"archiwum_{m_ar}_{r_ar}.pdf"
-        export_schedule(approved, r_ar, m_ar, f1); export_schedule_pdf(approved, r_ar, m_ar, f2)
+        export_schedule(approved, r_ar, m_ar, f1, location_name=selected_loc_name)
+        export_schedule_pdf(approved, r_ar, m_ar, f2, location_name=selected_loc_name)
         with open(f1, "rb") as f: cb.download_button("Pobierz Excel", f, f1, use_container_width=True)
         with open(f2, "rb") as f: cc.download_button("Pobierz PDF", f, f2, use_container_width=True)
     
@@ -503,6 +512,8 @@ elif menu == "Niedostępności (Urlopy/L4)":
     vr = colX.number_input("Rok", 2020, 2030, date.today().year, key="unav_r")
     vm = colY.number_input("Miesiąc", 1, 12, date.today().month, key="unav_m")
     
+    pl_holidays = holidays.Poland(years=vr)
+
     emps = db.get_employees(location_id)
     if emps:
         emp_names = {e[1]: e[0] for e in emps}
