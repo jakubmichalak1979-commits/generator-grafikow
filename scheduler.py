@@ -72,11 +72,11 @@ class ScheduleGenerator:
                         model.Add(shifts[(e, d)] != self.P)
                     elif status == 'NN':
                         model.Add(shifts[(e, d)] != self.N)
-                    elif status == 'TR':
+                    elif status == 'TR' or status == 'R':
                         model.Add(shifts[(e, d)] == self.R)
-                    elif status == 'TP':
+                    elif status == 'TP' or status == 'P':
                         model.Add(shifts[(e, d)] == self.P)
-                    elif status == 'TN':
+                    elif status == 'TN' or status == 'N':
                         model.Add(shifts[(e, d)] == self.N)
                 
                 # Prevent generator from randomly assigning U or CH

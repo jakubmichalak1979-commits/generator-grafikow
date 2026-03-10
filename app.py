@@ -509,8 +509,11 @@ elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'ad
 elif menu == "Niedostępności (Urlopy/L4)":
     st.header("Grafik nieobecności")
     colX, colY = st.columns(2)
-    vr = colX.number_input("Rok", 2020, 2030, date.today().year, key="unav_r")
-    vm = colY.number_input("Miesiąc", 1, 12, date.today().month, key="unav_m")
+    vr = colX.number_input("Rok", 2020, 2030, st.session_state.get('selected_year', date.today().year), key="unav_r")
+    vm = colY.number_input("Miesiąc", 1, 12, st.session_state.get('selected_month', date.today().month), key="unav_m")
+    
+    st.session_state['selected_year'] = vr
+    st.session_state['selected_month'] = vm
     
     pl_holidays = holidays.Poland(years=vr)
 
