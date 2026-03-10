@@ -179,7 +179,9 @@ if menu == "Generowanie Grafiku":
                     # Konwersja na DataFrame (wymuszamy stringi jako nazwy kolumn dla stabilności)
                     days_list = sorted(list(wynik[list(wynik.keys())[0]].keys()))
                     days_list_str = [str(d) for d in days_list]
-                    df_wynik = pd.DataFrame.from_dict(wynik, orient='index', columns=days_list_str)
+                    # Konwertujemy klucze w słowniku na stringi przed stworzeniem DataFrame
+                    wynik_str_keys = {name: {str(d): v for d, v in d_shifts.items()} for name, d_shifts in wynik.items()}
+                    df_wynik = pd.DataFrame.from_dict(wynik_str_keys, orient='index', columns=days_list_str)
                     
                     # --- Obliczenie Statystyk (Podsumowanie na prawo) ---
                     pl_holidays = holidays.Poland(years=rok)
