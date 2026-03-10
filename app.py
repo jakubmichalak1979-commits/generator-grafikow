@@ -176,11 +176,37 @@ if st.sidebar.button("Wyloguj"):
     cookie_manager.delete("remember_creds")
     st.rerun()
 
-st.title("📅 Generator Grafików Pracy Online")
+# --- Initial State for Widgets ---
+if 'selected_year' not in st.session_state:
+    st.session_state['selected_year'] = date.today().year
+if 'selected_month' not in st.session_state:
+    st.session_state['selected_month'] = date.today().month
+if 'selected_location_name' not in st.session_state:
+    # Set default to first location if available
+    locations = db.get_locations()
+    if locations:
+        st.session_state['selected_location_name'] = locations[0][1]
+    else:
+        st.session_state['selected_location_name'] = ""
 
 locations = db.get_locations()
 loc_dict = {name: id for id, name in locations}
-selected_loc_name = st.sidebar.selectbox("Wybierz Obiekt", list(loc_dict.keys()), key="selected_location_name")
+loc_names = list(loc_dict.keys())
+
+# Find index of saved location
+try:
+    loc_idx = loc_names.index(st.session_state['selected_location_name'])
+except:
+    loc_idx = 0
+
+selected_loc_name = st.sidebar.selectbox(
+    "Wybierz Obiekt", 
+    loc_names, 
+    index=loc_idx,
+    key="location_widget"
+)
+# Manual update to avoid "setitem" error on bound keys
+st.session_state['selected_location_name'] = selected_loc_name
 location_id = loc_dict[selected_loc_name]
 
 st.sidebar.divider()
@@ -195,13 +221,8 @@ if menu == "Generowanie Grafiku":
     st.header(f"Generuj nowy grafik: {selected_loc_name}")
     col1, col2 = st.columns(2)
     
-    if 'selected_year' not in st.session_state:
-        st.session_state['selected_year'] = date.today().year
-    if 'selected_month' not in st.session_state:
-        st.session_state['selected_month'] = date.today().month
-
-    rok = col1.number_input("Rok", 2020, 2030, st.session_state['selected_year'], key="main_rok")
-    miesiac = col2.number_input("Miesiąc", 1, 12, st.session_state['selected_month'], key="main_miesiac")
+    rok = col1.number_input("Rok", 2020, 2030, st.session_state['selected_year'])
+    miesiac = col2.number_input("Miesiąc", 1, 12, st.session_state['selected_month'])
     
     st.session_state['selected_year'] = rok
     st.session_state['selected_month'] = miesiac
@@ -407,7 +428,7 @@ elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'ad
                 st.session_state['selected_month'] = mo
                 st.session_state['active_schedule'] = db.get_schedule(yr, mo, loc_id, status="DRAFT")
                 st.session_state['schedule_status'] = "DRAFT"
-                st.success(f"Wczytano {loc_name}. Przejdź do 'Generowanie Grafiku'.")
+                st.rerun()
     else:
         st.success("Brak oczekujących draftów.")
 
