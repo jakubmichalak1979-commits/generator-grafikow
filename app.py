@@ -90,17 +90,39 @@ if not st.session_state['authenticated']:
 st.markdown("""
 <style>
 @media print {
-    [data-testid="stSidebar"] {
-        display: none;
+    /* Hide UI elements */
+    [data-testid="stSidebar"], [data-testid="stHeader"], [data-testid="stAppHeader"], .stButton, button {
+        display: none !important;
     }
-    .stAppHeader {
-        display: none;
-    }
-    .stButton {
-        display: none;
-    }
+    /* Expand main area */
     .main .block-container {
-        padding-top: 0rem;
+        padding-top: 0rem !important;
+        padding-bottom: 0rem !important;
+        max-width: 100% !important;
+    }
+    /* Hide interactive components that don't print well */
+    [data-testid="stDataFrame"], [data-testid="stDataEditor"], .stDataEditor {
+        display: none !important;
+    }
+    /* Show static print table */
+    .print-only {
+        display: block !important;
+    }
+    /* Table styling for print */
+    .print-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 10px;
+    }
+    .print-table th, .print-table td {
+        border: 1px solid #000;
+        padding: 3px;
+        text-align: center;
+    }
+}
+@media screen {
+    .print-only {
+        display: none;
     }
 }
 </style>
@@ -300,6 +322,12 @@ if menu == "Generowanie Grafiku":
             st.write("💡 **Legenda kolorów (Podgląd):** Zielony = Sobota, Czerwony = Niedziela/Święto. Litery: R=zielony, P=niebieski, W/U/CH=czerwony")
             st.dataframe(style_preview(df_wynik[days_list_str]), use_container_width=True)
 
+            # --- STATIC PRINT TABLE (Hidden on Screen) ---
+            st.markdown('<div class="print-only">', unsafe_allow_html=True)
+            st.write(f"### GRAFIK: {selected_loc_name} - {miesiac}/{rok}")
+            st.table(df_wynik[days_list_str])
+            st.markdown('</div>', unsafe_allow_html=True)
+
             # --- Edytor z Podsumowaniem po prawej ---
             shift_options = ['', 'R', 'P', 'N', 'W', 'U', 'CH']
             col_config = {}
@@ -415,6 +443,12 @@ elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'ad
         df_app = pd.DataFrame.from_dict(approved_fixed, orient='index', columns=days_list_str)
         
         st.dataframe(df_app, use_container_width=True)
+
+        # --- STATIC PRINT TABLE (Hidden on Screen) ---
+        st.markdown('<div class="print-only">', unsafe_allow_html=True)
+        st.write(f"### ZATWIERDZONY GRAFIK: {selected_loc_name} - {m_ar}/{r_ar}")
+        st.table(df_app)
+        st.markdown('</div>', unsafe_allow_html=True)
 
         ca, cb, cc = st.columns(3)
         if ca.button("🖨️ Drukuj Approved", use_container_width=True):
