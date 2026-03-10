@@ -147,12 +147,41 @@ if menu == "Generowanie Grafiku":
                 if wynik:
                     st.success("Wygenerowano propozycję grafiku!")
                     
-                    # Konwersja na DataFrame do edycji
+                    # Konwersja na DataFrame
                     days_list = sorted(list(wynik[list(wynik.keys())[0]].keys()))
                     df_wynik = pd.DataFrame.from_dict(wynik, orient='index', columns=days_list)
                     
-                    # --- Kolorowy Podgląd Dni ---
+                    # --- Obliczenie Statystyk (Podsumowanie na prawo) ---
                     pl_holidays = holidays.Poland(years=rok)
+                    
+                    praca_list = []
+                    wolne_list = []
+                    absencja_list = []
+                    we_list = []
+                    
+                    for name, row in df_wynik.iterrows():
+                        row_list = row.tolist()
+                        praca_list.append(sum(1 for x in row_list if x in ['R', 'P', 'N']))
+                        wolne_list.append(sum(1 for x in row_list if x == 'W'))
+                        absencja_list.append(sum(1 for x in row_list if x in ['U', 'CH']))
+                        
+                        we_count = 0
+                        for i, shift in enumerate(row_list):
+                            day = days_list[i]
+                            dt = date(rok, miesiac, day)
+                            if (dt.weekday() >= 5 or dt in pl_holidays) and shift in ['R', 'P', 'N']:
+                                we_count += 1
+                        we_list.append(we_count)
+                    
+                    # Dodanie kolumn podsumowania do DataFrame
+                    df_wynik["SUMA: Praca"] = praca_list
+                    df_wynik["SUMA: Wolne"] = wolne_list
+                    df_wynik["SUMA: U/CH"] = absencja_list
+                    df_wynik["SUMA: WE/ŚW"] = we_list
+
+                    st.subheader("Edycja i weryfikacja grafiku")
+                    
+                    # --- Kolorowy Podgląd (Informacyjny) ---
                     def highlight_days_gen(row):
                         styles = []
                         for col in row.index:
@@ -164,90 +193,59 @@ if menu == "Generowanie Grafiku":
                                 elif dt.weekday() == 5:
                                     styles.append('background-color: #b3ffb3') # Zielony
                                 else: styles.append('')
-                            except: styles.append('')
+                            except: styles.append('') # Kolumny tekstowe (statystyki)
                         return styles
 
-                    st.write("**Podgląd dni (kolory):**")
-                    st.dataframe(df_wynik.style.apply(highlight_days_gen, axis=1), use_container_width=True)
+                    st.write("💡 **Legenda kolorów (tylko podgląd):** Zielony = Sobota, Czerwony = Niedziela/Święto")
+                    st.dataframe(df_wynik[days_list].style.apply(highlight_days_gen, axis=1), use_container_width=True)
 
-                    # Konfiguracja kolumn (dropdowny)
+                    # --- Edytor z Podsumowaniem po prawej ---
                     shift_options = ['R', 'P', 'N', 'W', 'U', 'CH']
                     col_config = {
                         str(d): st.column_config.SelectboxColumn(str(d), options=shift_options, width="small") 
                         for d in days_list
                     }
+                    # Blokujemy edycję kolumn podsumowania
+                    for col in ["SUMA: Praca", "SUMA: Wolne", "SUMA: U/CH", "SUMA: WE/ŚW"]:
+                        col_config[col] = st.column_config.Column(col, disabled=True, width="small")
                     
                     edited_df = st.data_editor(df_wynik, column_config=col_config, key="schedule_editor", use_container_width=True)
                     
-                    # --- Podsumowanie na prawo ---
-                    st.divider()
-                    st.subheader("Podsumowanie przydziałów (wyliczone z edytora)")
-                    
-                    # Dynamiczne przeliczanie statystyk z edytora
-                    stats_list = []
-                    for name, row in edited_df.iterrows():
-                        row_list = row.tolist()
-                        dni_pracy = sum(1 for x in row_list if x in ['R', 'P', 'N'])
-                        wolne = sum(1 for x in row_list if x == 'W')
-                        absencja = sum(1 for x in row_list if x in ['U', 'CH'])
-                        
-                        we_count = 0
-                        for i, shift in enumerate(row_list):
-                            day = days_list[i]
-                            dt = date(rok, miesiac, day)
-                            if (dt.weekday() >= 5 or dt in pl_holidays) and shift in ['R', 'P', 'N']:
-                                we_count += 1
-                        
-                        stats_list.append({
-                            "Pracownik": name,
-                            "Praca (R+P+N)": dni_pracy,
-                            "Wolne (W)": wolne,
-                            "Urlop/L4 (U+CH)": absencja,
-                            "SND/Święta": we_count
-                        })
-                    
-                    st.dataframe(pd.DataFrame(stats_list), hide_index=True, use_container_width=True)
-                    
                     # --- Walidacja Kodeksu Pracy ---
                     warnings = []
-                    for name, row in edited_df.iterrows():
+                    for name, row in edited_df[days_list].iterrows():
                         row_list = row.tolist()
                         for i in range(len(row_list) - 1):
                             curr = row_list[i]
                             nxt = row_list[i+1]
-                            # Zasada 11h odpoczynku (Forbidden: P->R, N->R, N->P)
                             if (curr == 'P' and nxt == 'R') or (curr == 'N' and nxt == 'R') or (curr == 'N' and nxt == 'P'):
                                 warnings.append(f"⚠️ **{name}**: Brak 11h odpoczynku między dniem {i+1} a {i+2} ({curr} -> {nxt})")
                         
-                        # Zasada max 6 dni pracy pod rząd
                         work_streak = 0
                         for i, shift in enumerate(row_list):
                             if shift in ['R', 'P', 'N']:
                                 work_streak += 1
                                 if work_streak > 6:
                                     warnings.append(f"⚠️ **{name}**: Ponad 6 dni pracy z rzędu (dzień {i+1})")
-                            else:
-                                work_streak = 0
+                            else: work_streak = 0
 
                     if warnings:
                         for w in warnings: st.warning(w)
-                    else:
-                        st.success("✅ Grafik zgodny z podstawowymi zasadami odpoczynku.")
+                    else: st.success("✅ Grafik zgodny z podstawowymi zasadami odpoczynku.")
 
                     # Przyciski akcji
                     c1, c2 = st.columns(2)
                     if c1.button("Zapisz jako Roboczy (DRAFT)"):
-                        new_wynik = edited_df.to_dict(orient='index')
+                        new_wynik = edited_df[days_list].to_dict(orient='index')
                         db.save_schedule(new_wynik, rok, miesiac, emp_name_to_id, location_id, status="DRAFT", user=st.session_state['username'])
                         st.success("Grafik zapisany jako Roboczy!")
 
                     if st.session_state['user_role'] == 'admin':
                         if c2.button("Zatwierdź Grafik (APPROVED)", type="primary"):
-                            new_wynik = edited_df.to_dict(orient='index')
+                            new_wynik = edited_df[days_list].to_dict(orient='index')
                             db.save_schedule(new_wynik, rok, miesiac, emp_name_to_id, location_id, status="APPROVED", user=st.session_state['username'])
                             st.success("GRAFIK ZATWIERDZONY!")
                             
-                            # Export po zatwierdzeniu
                             fname_x = f"grafik_{miesiac}_{rok}.xlsx"
                             fname_p = f"grafik_{miesiac}_{rok}.pdf"
                             export_schedule(new_wynik, rok, miesiac, fname_x)
