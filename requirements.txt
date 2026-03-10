@@ -6,3 +6,4 @@ sqlalchemy>=2.0.28
 psycopg2-binary>=2.9.9
 holidays>=0.40.0
 reportlab>=4.0.0
+extra-streamlit-components>=0.1.71

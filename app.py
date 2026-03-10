@@ -12,6 +12,7 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 import os
+import extra_streamlit_components as stx
 
 st.set_page_config(page_title="Generator Grafików Pro", layout="wide", initial_sidebar_state="expanded")
 
@@ -23,11 +24,30 @@ except Exception as e:
     st.info("Prawdopodobnie musisz użyć linku 'Pooler' z Supabase (port 6543) zamiast bezpośredniego połączenia.")
     st.stop()
 
+# --- Cookie Manager for 'Remember Me' ---
+cookie_manager = stx.CookieManager()
+
+def check_cookies():
+    saved_user = cookie_manager.get("remember_user")
+    saved_pass = cookie_manager.get("remember_pass")
+    if saved_user and saved_pass and not st.session_state['authenticated']:
+        user = db.verify_user(saved_user, saved_pass)
+        if user:
+            st.session_state['authenticated'] = True
+            st.session_state['user_role'] = user.role
+            st.session_state['username'] = user.username
+            return True
+    return False
+
 # --- Authentication ---
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
     st.session_state['user_role'] = None
     st.session_state['username'] = None
+
+# Auto-login check
+if not st.session_state['authenticated']:
+    check_cookies()
 
 def login():
     st.title("🔒 Logowanie do Systemu")
@@ -36,13 +56,21 @@ def login():
         with st.form("login_form"):
             username = st.text_input("Użytkownik")
             password = st.text_input("Hasło", type="password")
+            remember = st.checkbox("Zapamiętaj mnie")
             submit = st.form_submit_button("Zaloguj")
+            
             if submit:
                 user = db.verify_user(username, password)
                 if user:
                     st.session_state['authenticated'] = True
                     st.session_state['user_role'] = user.role
                     st.session_state['username'] = user.username
+                    
+                    if remember:
+                        # Save for 30 days
+                        cookie_manager.set("remember_user", username, expires_at=date.today().replace(year=date.today().year + 1))
+                        cookie_manager.set("remember_pass", password, expires_at=date.today().replace(year=date.today().year + 1))
+                    
                     st.success("Zalogowano pomyślnie!")
                     st.rerun()
                 else:
@@ -96,6 +124,8 @@ import os
 st.sidebar.title(f"Witaj, {st.session_state['username']}")
 if st.sidebar.button("Wyloguj"):
     st.session_state['authenticated'] = False
+    cookie_manager.delete("remember_user")
+    cookie_manager.delete("remember_pass")
     st.rerun()
 
 st.title("📅 Generator Grafików Pracy Online")
