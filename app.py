@@ -151,9 +151,25 @@ if menu == "Generowanie Grafiku":
                     days_list = sorted(list(wynik[list(wynik.keys())[0]].keys()))
                     df_wynik = pd.DataFrame.from_dict(wynik, orient='index', columns=days_list)
                     
-                    st.subheader("Edycja i weryfikacja grafiku")
-                    st.info("Możesz teraz ręcznie zmienić zmiany. Pod tabelą zobaczysz ostrzeżenia, jeśli złamiesz zasady Kodeksu Pracy.")
-                    
+                    # --- Kolorowy Podgląd Dni ---
+                    pl_holidays = holidays.Poland(years=rok)
+                    def highlight_days_gen(row):
+                        styles = []
+                        for col in row.index:
+                            try:
+                                d_int = int(col)
+                                dt = date(rok, miesiac, d_int)
+                                if dt.weekday() == 6 or dt in pl_holidays:
+                                    styles.append('background-color: #ffb3b3') # Czerwony
+                                elif dt.weekday() == 5:
+                                    styles.append('background-color: #b3ffb3') # Zielony
+                                else: styles.append('')
+                            except: styles.append('')
+                        return styles
+
+                    st.write("**Podgląd dni (kolory):**")
+                    st.dataframe(df_wynik.style.apply(highlight_days_gen, axis=1), use_container_width=True)
+
                     # Konfiguracja kolumn (dropdowny)
                     shift_options = ['R', 'P', 'N', 'W', 'U', 'CH']
                     col_config = {
@@ -161,7 +177,36 @@ if menu == "Generowanie Grafiku":
                         for d in days_list
                     }
                     
-                    edited_df = st.data_editor(df_wynik, column_config=col_config, key="schedule_editor")
+                    edited_df = st.data_editor(df_wynik, column_config=col_config, key="schedule_editor", use_container_width=True)
+                    
+                    # --- Podsumowanie na prawo ---
+                    st.divider()
+                    st.subheader("Podsumowanie przydziałów (wyliczone z edytora)")
+                    
+                    # Dynamiczne przeliczanie statystyk z edytora
+                    stats_list = []
+                    for name, row in edited_df.iterrows():
+                        row_list = row.tolist()
+                        dni_pracy = sum(1 for x in row_list if x in ['R', 'P', 'N'])
+                        wolne = sum(1 for x in row_list if x == 'W')
+                        absencja = sum(1 for x in row_list if x in ['U', 'CH'])
+                        
+                        we_count = 0
+                        for i, shift in enumerate(row_list):
+                            day = days_list[i]
+                            dt = date(rok, miesiac, day)
+                            if (dt.weekday() >= 5 or dt in pl_holidays) and shift in ['R', 'P', 'N']:
+                                we_count += 1
+                        
+                        stats_list.append({
+                            "Pracownik": name,
+                            "Praca (R+P+N)": dni_pracy,
+                            "Wolne (W)": wolne,
+                            "Urlop/L4 (U+CH)": absencja,
+                            "SND/Święta": we_count
+                        })
+                    
+                    st.dataframe(pd.DataFrame(stats_list), hide_index=True, use_container_width=True)
                     
                     # --- Walidacja Kodeksu Pracy ---
                     warnings = []
@@ -242,7 +287,6 @@ elif menu == "Niedostępności (Urlopy/L4)":
         df = pd.DataFrame(index=[e[1] for e in emps], columns=[str(d) for d in range(1, num_days+1)])
         for eid, d, t in unav:
             if eid in reverse_emps: df.at[reverse_emps[eid], str(d)] = t
-            
         # --- Kolorowanie i Skonfigurowanie Wyboru ---
         pl_holidays = holidays.Poland(years=vr)
         
@@ -253,14 +297,17 @@ elif menu == "Niedostępności (Urlopy/L4)":
                     d_int = int(col)
                     dt = date(vr, vm, d_int)
                     if dt.weekday() == 6 or dt in pl_holidays: # Niedziela / Święto
-                        styles.append('background-color: #ffb3b3') # Czerwony
+                        styles.append('background-color: #ffccce') # Jasnoczerwony
                     elif dt.weekday() == 5: # Sobota
-                        styles.append('background-color: #b3ffb3') # Zielony
+                        styles.append('background-color: #ccffcc') # Jasnozielony
                     else:
                         styles.append('')
                 except:
                     styles.append('')
             return styles
+
+        st.write("**Podgląd dni (kolory - Soboty: zielony, Niedziele/Święta: czerwony):**")
+        st.dataframe(df.style.apply(highlight_days, axis=1), use_container_width=True)
 
         # Definicja dropdownów dla każdego dnia
         day_config = {
@@ -272,11 +319,8 @@ elif menu == "Niedostępności (Urlopy/L4)":
             ) for d in range(1, num_days + 1)
         }
         
-        # Stosujemy style
-        styled_df = df.style.apply(highlight_days, axis=1)
-
         edited = st.data_editor(
-            styled_df, 
+            df, 
             use_container_width=True, 
             column_config=day_config,
             key="unav_editor"
