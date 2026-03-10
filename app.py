@@ -233,10 +233,17 @@ if menu == "Generowanie Grafiku":
 
                     # --- Edytor z Podsumowaniem po prawej ---
                     shift_options = ['R', 'P', 'N', 'W', 'U', 'CH']
-                    col_config = {
-                        d_s: st.column_config.SelectboxColumn(d_s, options=shift_options, width="small") 
-                        for d_s in days_list_str
-                    }
+                    col_config = {}
+                    for d in days_list:
+                        d_s = str(d)
+                        dt = date(rok, miesiac, d)
+                        label = d_s
+                        if dt.weekday() == 6 or dt in pl_holidays:
+                            label = f"🔴 {d_s}"
+                        elif dt.weekday() == 5:
+                            label = f"🟢 {d_s}"
+                        col_config[d_s] = st.column_config.SelectboxColumn(label, options=shift_options, width="small")
+
                     # Blokujemy edycję kolumn podsumowania
                     for col in ["SUMA: Praca", "SUMA: Wolne", "SUMA: U/CH", "SUMA: WE/ŚW"]:
                         col_config[col] = st.column_config.Column(col, disabled=True, width="small")
@@ -342,15 +349,23 @@ elif menu == "Niedostępności (Urlopy/L4)":
         st.write("**Podgląd dni (kolory - Soboty: zielony, Niedziele/Święta: czerwony):**")
         st.dataframe(df.style.apply(highlight_days, axis=1), use_container_width=True)
 
-        # Definicja dropdownów dla każdego dnia
-        day_config = {
-            str(d): st.column_config.SelectboxColumn(
-                label=str(d),
+        # Definicja dropdownów dla każdego dnia z kolorowymi kropkami
+        day_config = {}
+        for d in range(1, num_days + 1):
+            d_s = str(d)
+            dt = date(vr, vm, d)
+            label = d_s
+            if dt.weekday() == 6 or dt in pl_holidays:
+                label = f"🔴 {d_s}"
+            elif dt.weekday() == 5:
+                label = f"🟢 {d_s}"
+            
+            day_config[d_s] = st.column_config.SelectboxColumn(
+                label=label,
                 width="small",
                 options=['', 'W', 'U', 'CH', 'R', 'P', 'N', 'NR', 'NP', 'NN', 'TR', 'TP', 'TN'],
                 required=False
-            ) for d in range(1, num_days + 1)
-        }
+            )
         
         edited = st.data_editor(
             df, 
