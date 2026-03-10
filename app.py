@@ -297,12 +297,20 @@ if menu == "Generowanie Grafiku":
             df_wynik = df_wynik.reindex([e[1] for e in emps_master])
 
             # --- Obliczenie Statystyk (Podsumowanie na prawo) ---
-            praca_list, wolne_list, absencja_list, we_list = [], [], [], []
+            r_list, p_list, n_list, w_list, u_list, ch_list, s_list, we_list = [], [], [], [], [], [], [], []
             for name, row in df_wynik.iterrows():
                 row_list = row.fillna('').tolist()
-                praca_list.append(sum(1 for x in row_list if x in ['R', 'P', 'N']))
-                wolne_list.append(sum(1 for x in row_list if x == 'W'))
-                absencja_list.append(sum(1 for x in row_list if x in ['U', 'CH']))
+                r_c = sum(1 for x in row_list if x == 'R')
+                p_c = sum(1 for x in row_list if x == 'P')
+                n_c = sum(1 for x in row_list if x == 'N')
+                w_c = sum(1 for x in row_list if x == 'W')
+                u_c = sum(1 for x in row_list if x == 'U')
+                ch_c = sum(1 for x in row_list if x == 'CH')
+                
+                r_list.append(r_c); p_list.append(p_c); n_list.append(n_c)
+                w_list.append(w_c); u_list.append(u_c); ch_list.append(ch_c)
+                s_list.append(r_c + p_c + n_c + u_c + ch_c)
+                
                 we_count = 0
                 for i, shift in enumerate(row_list):
                     day_val = days_list[i]
@@ -311,10 +319,14 @@ if menu == "Generowanie Grafiku":
                         we_count += 1
                 we_list.append(we_count)
             
-            df_wynik["SUMA: Praca"] = praca_list
-            df_wynik["SUMA: Wolne"] = wolne_list
-            df_wynik["SUMA: U/CH"] = absencja_list
-            df_wynik["SUMA: WE/ŚW"] = we_list
+            df_wynik["R"] = r_list
+            df_wynik["P"] = p_list
+            df_wynik["N"] = n_list
+            df_wynik["W"] = w_list
+            df_wynik["U"] = u_list
+            df_wynik["CH"] = ch_list
+            df_wynik["S"] = s_list
+            df_wynik["WE"] = we_list
 
             st.subheader("Edycja i weryfikacja grafiku")
 
@@ -346,7 +358,9 @@ if menu == "Generowanie Grafiku":
             # --- STATIC PRINT TABLE (Hidden on Screen) ---
             st.markdown('<div class="print-only">', unsafe_allow_html=True)
             st.write(f"### GRAFIK: {selected_loc_name} - {miesiac}/{rok}")
-            st.table(df_wynik[days_list_str])
+            # Include summary columns in print
+            sum_cols = ["R", "P", "N", "W", "U", "CH", "S", "WE"]
+            st.table(df_wynik[days_list_str + sum_cols])
             st.markdown('</div>', unsafe_allow_html=True)
 
             # --- Edytor z Podsumowaniem po prawej ---
@@ -357,7 +371,7 @@ if menu == "Generowanie Grafiku":
                 label = f"🔴 {d_s}" if (dt.weekday() == 6 or dt in pl_holidays) else (f"🟢 {d_s}" if dt.weekday() == 5 else d_s)
                 col_config[d_s] = st.column_config.SelectboxColumn(label, options=shift_options, width="small")
 
-            for col in ["SUMA: Praca", "SUMA: Wolne", "SUMA: U/CH", "SUMA: WE/ŚW"]:
+            for col in ["R", "P", "N", "W", "U", "CH", "S", "WE"]:
                 col_config[col] = st.column_config.Column(col, disabled=True, width="small")
             
             edited_df = st.data_editor(df_wynik, column_config=col_config, key=f"edit_{rok}_{miesiac}", use_container_width=True)
