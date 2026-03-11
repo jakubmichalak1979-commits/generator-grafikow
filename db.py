@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Date, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Date, UniqueConstraint, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import date
@@ -20,6 +20,7 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     password = Column(String)
     role = Column(String)  # 'admin' or 'user'
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
 
 class Location(Base):
     __tablename__ = "locations"
@@ -72,6 +73,16 @@ def init_db():
         db.add(User(username="uzytkownik1", password="grafiki2026", role="user"))
     db.commit()
     db.close()
+
+    # Migracja: dodaj kolumnę employee_id do tabeli users, jeśli nie istnieje
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_id INTEGER REFERENCES employees(id)"
+            ))
+            conn.commit()
+    except Exception:
+        pass  # Kolumna już istnieje lub brak uprawnień
 
 def get_locations():
     db = SessionLocal()
@@ -193,6 +204,48 @@ def get_all_stats(location_id=None):
     db.close()
     return stats
 
+def get_stats_for_range(location_id, year_from, month_from, year_to, month_to):
+    """Zwraca statystyki (R, P, N, W, U, CH, S, WE) dla zakresu miesięcy z zatwierdzonych grafików."""
+    db_s = SessionLocal()
+    rows = db_s.query(
+        Employee.name,
+        Schedule.year,
+        Schedule.month,
+        Schedule.day,
+        Schedule.shift
+    ).join(Employee, Employee.id == Schedule.employee_id).filter(
+        Schedule.status == "APPROVED",
+        Schedule.location_id == location_id
+    ).order_by(Employee.sort_order, Employee.name).all()
+    db_s.close()
+
+    from_val = year_from * 12 + month_from
+    to_val   = year_to   * 12 + month_to
+
+    import holidays as hol
+    from datetime import date as dt_date
+
+    pl_holidays_cache = {}
+    stats = {}
+
+    for name, year, month, day, shift in rows:
+        val = year * 12 + month
+        if from_val <= val <= to_val:
+            if name not in stats:
+                stats[name] = {'R': 0, 'P': 0, 'N': 0, 'W': 0, 'U': 0, 'CH': 0, 'S': 0, 'WE': 0}
+            if shift in ['R', 'P', 'N', 'W', 'U', 'CH']:
+                stats[name][shift] += 1
+            if shift in ['R', 'P', 'N', 'U', 'CH']:
+                stats[name]['S'] += 1
+            if shift in ['R', 'P', 'N']:
+                if year not in pl_holidays_cache:
+                    pl_holidays_cache[year] = hol.Poland(years=year)
+                d = dt_date(year, month, day)
+                if d.weekday() >= 5 or d in pl_holidays_cache[year]:
+                    stats[name]['WE'] += 1
+
+    return stats
+
 def verify_user(username, password):
     db = SessionLocal()
     user = db.query(User).filter(User.username == username, User.password == password).first()
@@ -204,6 +257,13 @@ def get_users():
     users = db.query(User).all()
     db.close()
     return [(u.id, u.username, u.role) for u in users]
+
+def get_users_full():
+    """Zwraca listę użytkowników z powiązanym employee_id."""
+    db = SessionLocal()
+    users = db.query(User).all()
+    db.close()
+    return [(u.id, u.username, u.role, u.employee_id) for u in users]
 
 def add_user(username, password, role="user"):
     db = SessionLocal()
@@ -219,3 +279,80 @@ def remove_user(user_id):
     db.query(User).filter(User.id == user_id).delete()
     db.commit()
     db.close()
+
+def link_user_to_employee(user_id, employee_id):
+    """Powiązuje konto użytkownika z profilem pracownika (None = odłącz)."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        user.employee_id = employee_id if employee_id else None
+        db.commit()
+    db.close()
+
+def get_employee_for_user(username):
+    """Zwraca (id, name, location_id, email, sort_order) pracownika powiązanego z tym kontem."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.username == username).first()
+    if user and user.employee_id:
+        emp = db.query(Employee).filter(Employee.id == user.employee_id).first()
+        db.close()
+        if emp:
+            return (emp.id, emp.name, emp.location_id, emp.email, emp.sort_order)
+    db.close()
+    return None
+
+def get_my_schedule(employee_id, year, month):
+    """Zwraca {day: shift} słownik dla pracownika z zatwierdzonego grafiku."""
+    db = SessionLocal()
+    rows = db.query(Schedule.day, Schedule.shift).filter(
+        Schedule.employee_id == employee_id,
+        Schedule.year == year,
+        Schedule.month == month,
+        Schedule.status == "APPROVED"
+    ).all()
+    db.close()
+    return {day: shift for day, shift in rows}
+
+def get_my_schedule_months(employee_id):
+    """Zwraca listę (year, month, location_name) miesięcy z zatwierdzonymi grafikami dla pracownika."""
+    db = SessionLocal()
+    results = db.query(
+        Schedule.year, Schedule.month, Location.name
+    ).join(Location, Schedule.location_id == Location.id).filter(
+        Schedule.employee_id == employee_id,
+        Schedule.status == "APPROVED"
+    ).distinct().order_by(Schedule.year.desc(), Schedule.month.desc()).all()
+    db.close()
+    return [(r[0], r[1], r[2]) for r in results]
+
+def get_my_unavailabilities(employee_id, year, month):
+    """Zwraca {day: type} preferencji dla pracownika."""
+    db = SessionLocal()
+    rows = db.query(Unavailability.day, Unavailability.type).filter(
+        Unavailability.employee_id == employee_id,
+        Unavailability.year == year,
+        Unavailability.month == month
+    ).all()
+    db.close()
+    return {day: typ for day, typ in rows}
+
+def save_my_unavailabilities(employee_id, location_id, year, month, data_dict):
+    """Zapisuje/nadpisuje preferencje pracownika na dany miesiąc. data_dict: {day: type_str}"""
+    db = SessionLocal()
+    db.query(Unavailability).filter(
+        Unavailability.employee_id == employee_id,
+        Unavailability.year == year,
+        Unavailability.month == month,
+        Unavailability.location_id == location_id
+    ).delete()
+    for day, typ in data_dict.items():
+        if typ and str(typ).strip():
+            db.add(Unavailability(
+                employee_id=employee_id,
+                location_id=location_id,
+                year=year, month=month,
+                day=int(day), type=str(typ).upper()
+            ))
+    db.commit()
+    db.close()
+
