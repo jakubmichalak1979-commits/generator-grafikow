@@ -76,14 +76,21 @@ def login():
                         # Save credentials as a single string to avoid duplicate component calls
                         creds = f"{username}|{password}"
                         cookie_manager.set("remember_creds", creds, expires_at=date.today().replace(year=date.today().year + 1))
-                    
-                    st.success("Zalogowano pomyślnie!")
-                    st.rerun()
+                        # Zamiast st.rerun, dajemy czas na zapis ciastka!
+                        st.session_state['just_logged_in'] = True
+                    else:
+                        st.success("Zalogowano pomyślnie!")
+                        st.rerun()
                 else:
                     st.error("Błędny użytkownik lub hasło")
 
 if not st.session_state['authenticated']:
     login()
+    if st.session_state.get('just_logged_in'):
+        st.success("Zapisuję ciasteczko logowania w Twojej przeglądarce...")
+        if st.button("➡️ Przejdź do aplikacji", type="primary", use_container_width=True):
+            st.session_state['just_logged_in'] = False
+            st.rerun()
     st.stop()
 
 # --- Custom CSS for Printing ---
@@ -627,7 +634,7 @@ elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'ad
 
             # --- Przyciski eksportu ---
             st.divider()
-            c_p, c_e, c_pf = st.columns(3)
+            c_p, c_e, c_pf, c_d = st.columns(4)
             if c_p.button("🖨️ Drukuj Archiwum", use_container_width=True):
                 trigger_print()
                 
@@ -638,6 +645,11 @@ elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'ad
             
             with open(f_xl, "rb") as f: c_e.download_button("Pobierz Excel", f, f_xl, use_container_width=True)
             with open(f_pd, "rb") as f: c_pf.download_button("Pobierz PDF", f, f_pd, use_container_width=True)
+            
+            if c_d.button("🗑️ Usuń Archiwum", type="primary", use_container_width=True):
+                db.delete_schedule(a_yr, a_mo, a_loc_id, status="APPROVED")
+                st.success("Zatwierdzony grafik został nieodwracalnie usunięty z bazy!")
+                st.rerun()
     
     # The original "if not draft and not approved" block is now handled by the tab logic
     # and the specific messages within each tab.

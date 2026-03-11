@@ -165,6 +165,17 @@ def save_schedule(schedule_dict, year, month, emp_name_to_id, location_id, statu
     db.commit()
     db.close()
 
+def delete_schedule(year, month, location_id, status="APPROVED"):
+    db = SessionLocal()
+    db.query(Schedule).filter(
+        Schedule.year == year, 
+        Schedule.month == month, 
+        Schedule.location_id == location_id, 
+        Schedule.status == status
+    ).delete()
+    db.commit()
+    db.close()
+
 def get_schedule(year, month, location_id, status="APPROVED"):
     db = SessionLocal()
     rows = db.query(Employee.name, Schedule.day, Schedule.shift).join(Employee).filter(
