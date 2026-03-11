@@ -5,8 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from datetime import date
 import streamlit as st
 
-# Connection string from st.secrets
-DB_URL = st.secrets.get("db_url", "postgresql://postgres:Logowanie000@db.oxzlfmaotsosxzvivjrt.supabase.co:5432/postgres")
+DB_URL = st.secrets.get("db_url", "postgresql://postgres.oxzlfmaotsosxzvivjrt:Logowanie000@aws-0-eu-central-1.pooler.supabase.com:6543/postgres")
 
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

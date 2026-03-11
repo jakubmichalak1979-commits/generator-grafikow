@@ -21,8 +21,8 @@ st.set_page_config(page_title="Generator Grafików Pro", layout="wide", initial_
 try:
     db.init_db()
 except Exception as e:
-    st.error(f"⚠️ Błąd połączenia z bazą danych! Sprawdź ustawienia 'Secrets' na Streamlit Cloud.")
-    st.info("Prawdopodobnie musisz użyć linku 'Pooler' z Supabase (port 6543) zamiast bezpośredniego połączenia.")
+    st.error(f"⚠️ Błąd połączenia z bazą danych: {str(e)}")
+    st.info("Sprawdź ustawienia 'Secrets' na Streamlit Cloud. Prawdopodobnie musisz użyć linku 'Pooler' z Supabase (port 6543) zamiast bezpośredniego połączenia.")
     st.stop()
 
 # --- Cookie Manager for 'Remember Me' ---
