@@ -482,130 +482,118 @@ if menu == "Generowanie Grafiku":
                 trigger_print()
 
 elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'admin':
-    st.header("Zarządzanie grafikami")
+    st.header("🗂️ Archiwum i Zarządzanie Grafikami")
+    st.write(f"Wybrany obiekt: **{selected_loc_name}**")
+
+    # Pobierz dostępne grafiki dla WYBRANEGO obiektu
+    all_drafts_raw = db.get_all_schedules_with_status("DRAFT")
+    all_approved_raw = db.get_all_schedules_with_status("APPROVED")
     
-    # --- PRZEGLĄD WSZYSTKICH DRAFTÓW ---
-    st.subheader("❗ Grafiki czekające na zatwierdzenie (Wszystkie Obiekty)")
-    all_drafts = db.get_all_schedules_with_status("DRAFT")
-    if all_drafts:
-        for yr, mo, loc_id, loc_name in all_drafts:
-            c1, c2 = st.columns([3, 1])
-            c1.info(f"📅 **{loc_name}** - Miesiąc: {mo}/{yr}")
-            if c2.button(f"Wczytaj do edycji", key=f"ar_load_{yr}_{mo}_{loc_id}"):
-                st.session_state['selected_location_name'] = loc_name
-                st.session_state['location_widget'] = loc_name  # aktualizuje selectbox obiektu
-                st.session_state['selected_year'] = yr
-                st.session_state['selected_month'] = mo
-                st.session_state['active_schedule'] = db.get_schedule(yr, mo, loc_id, status="DRAFT")
+    # Filtrujemy tylko dla obecnego 'location_id'
+    loc_drafts = [d for d in all_drafts_raw if d[2] == location_id]
+    loc_approved = [d for d in all_approved_raw if d[2] == location_id]
+
+    month_pl_names = ["", "Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", 
+                       "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"]
+
+    tab_draft, tab_arch = st.tabs(["❗ Szkice do zatwierdzenia (Drafty)", "✅ Zatwierdzone (Archiwum)"])
+
+    with tab_draft:
+        st.subheader("Grafiki robocze (DRAFT) czekające na edycję/zatwierdzenie")
+        if not loc_drafts:
+            st.success(f"Brak oczekujących draftów dla obiektu '{selected_loc_name}'. Wszystko załatwione!")
+        else:
+            draft_options = [f"{month_pl_names[mo]} {yr}" for yr, mo, _, _ in loc_drafts]
+            sel_draft_label = st.selectbox("Wybierz szkic:", draft_options, key="draft_sel")
+            idx = draft_options.index(sel_draft_label)
+            d_yr, d_mo, d_loc_id, d_loc_name = loc_drafts[idx]
+
+            c1, c2 = st.columns([1, 1])
+            if c1.button("✏️ Wczytaj wybrany Draft do Edytora", type="primary", use_container_width=True):
+                st.session_state['selected_year'] = d_yr
+                st.session_state['selected_month'] = d_mo
+                st.session_state['active_schedule'] = db.get_schedule(d_yr, d_mo, d_loc_id, status="DRAFT")
                 st.session_state['schedule_status'] = "DRAFT"
-                # Automatyczne przejście do zakładki generatora
                 st.session_state['nav_menu'] = "Generowanie Grafiku"
-                # Wyczyść poprzednie ustawienia rok/miesiąc widgetu
-                for k in ['selected_year', 'selected_month']:
-                    st.session_state[k] = yr if k == 'selected_year' else mo
                 st.rerun()
-    else:
-        st.success("Brak oczekujących draftów.")
 
-    st.divider()
-    st.subheader("🔍 Przeglądaj Archiwum / Wybrany okres")
-    colA, colB = st.columns(2)
-    r_ar = colA.number_input("Rok", 2020, 2030, st.session_state.get('selected_year', date.today().year), key="ar_r")
-    m_ar = colB.number_input("Miesiąc", 1, 12, st.session_state.get('selected_month', date.today().month), key="ar_m")
-    
-    draft = db.get_schedule(r_ar, m_ar, location_id, status="DRAFT")
-    approved = db.get_schedule(r_ar, m_ar, location_id, status="APPROVED")
-    
-    if draft:
-        st.subheader("📝 Grafik Roboczy (DRAFT) dla obecnego obiektu")
-        st.info("Ten grafik czeka na weryfikację.")
-        if st.button("Pobierz Draft do edycji w generatorze"):
-            st.session_state['active_schedule'] = draft
-            st.session_state['schedule_status'] = "DRAFT"
-            st.session_state['selected_year'] = r_ar
-            st.session_state['selected_month'] = m_ar
-            # selected_loc_name to bieżący obiekt (nie zmienia się), ale upewniamy się
-            st.session_state['location_widget'] = selected_loc_name
-            # Automatyczne przejście do zakładki generatora
-            st.session_state['nav_menu'] = "Generowanie Grafiku"
-            st.rerun()
+    with tab_arch:
+        st.subheader("Przewijaj historyczne grafiki")
+        if not loc_approved:
+            st.info(f"Brak zatwierdzonych grafików w archiwum dla '{selected_loc_name}'.")
+        else:
+            app_options = [f"{month_pl_names[mo]} {yr}" for yr, mo, _, _ in loc_approved]
+            sel_app_label = st.selectbox("Wybierz zatwierdzony grafik:", app_options, key="app_sel")
+            idx_a = app_options.index(sel_app_label)
+            a_yr, a_mo, a_loc_id, a_loc_name = loc_approved[idx_a]
 
-    if approved:
-        st.subheader("✅ Grafik Zatwierdzony (Archiwum) dla obecnego obiektu")
-        
-        # Display the approved schedule in a nice table
-        pl_holidays = holidays.Poland(years=r_ar)
-        days_in_month = calendar.monthrange(r_ar, m_ar)[1]
-        days_list_str = [str(d) for d in range(1, days_in_month + 1)]
-        
-        # Fix keys and create DF
-        approved_fixed = {name: {str(d): v for d, v in days.items()} for name, days in approved.items()}
-        df_app = pd.DataFrame.from_dict(approved_fixed, orient='index', columns=days_list_str)
-        
-        st.dataframe(df_app, use_container_width=True)
-
-        # --- STATIC PRINT TABLE (Hidden on Screen) ---
-        month_pl_names2 = ["", "STYCZEŃ", "LUTY", "MARZEC", "KWIECIEŃ", "MAJ", "CZERWIEC", 
-                           "LIPIEC", "SIERPIEŃ", "WRZESIEŃ", "PAŹDZIERNIK", "LISTOPAD", "GRUDZIEŃ"]
-
-        def day_bg2(col, year, month):
-            try:
-                d_int = int(col)
-                dt2 = date(year, month, d_int)
-                ph2 = holidays.Poland(years=year)
-                if dt2.weekday() == 6 or dt2 in ph2:
-                    return '#FFC7CE'
-                elif dt2.weekday() == 5:
-                    return '#C6EFCE'
-            except:
-                pass
-            return '#ffffff'
-
-        def shift_color2(val):
-            colors2 = {'R': '#006100', 'P': '#0070C0', 'N': '#000000',
-                       'W': '#c00000', 'U': '#c00000', 'CH': '#c00000'}
-            return colors2.get(str(val), '#000000')
-
-        th_cells2 = '<th style="border:1px solid #000;padding:3px;background:#d0d0d0">Imię i Nazwisko</th>'
-        for col2 in days_list_str:
-            bg2 = day_bg2(col2, r_ar, m_ar)
-            th_cells2 += f'<th style="border:1px solid #000;padding:2px;background:{bg2};font-size:9px">{col2}</th>'
-
-        tr_rows2 = ''
-        for emp_name2, row2 in df_app.iterrows():
-            tds2 = f'<td style="border:1px solid #000;padding:3px;white-space:nowrap"><b>{emp_name2}</b></td>'
-            for col2 in days_list_str:
-                val2 = row2[col2]
-                val_str2 = '' if (val2 is None or str(val2) == 'nan') else str(val2)
-                color2 = shift_color2(val_str2)
-                bg2 = day_bg2(col2, r_ar, m_ar)
-                tds2 += f'<td style="border:1px solid #000;padding:2px;text-align:center;color:{color2};font-weight:bold;background:{bg2};font-size:9px">{val_str2}</td>'
-            tr_rows2 += f'<tr>{tds2}</tr>'
-
-        print_html2 = f"""
-        <div class="print-only">
-            <h2 style="margin:4px 0">ZATWIERDZONY GRAFIK — OBIEKT {selected_loc_name.upper()}</h2>
-            <h3 style="margin:4px 0">MIESIĄC {month_pl_names2[m_ar]} ROK {r_ar}</h3>
-            <table style="width:100%;border-collapse:collapse;font-size:9px;margin-top:8px">
-                <thead><tr>{th_cells2}</tr></thead>
-                <tbody>{tr_rows2}</tbody>
-            </table>
-        </div>
-        """
-        st.markdown(print_html2, unsafe_allow_html=True)
-
-        ca, cb, cc = st.columns(3)
-        if ca.button("🖨️ Drukuj Approved", use_container_width=True):
-            trigger_print()
+            approved = db.get_schedule(a_yr, a_mo, a_loc_id, status="APPROVED")
             
-        f1, f2 = f"archiwum_{m_ar}_{r_ar}.xlsx", f"archiwum_{m_ar}_{r_ar}.pdf"
-        export_schedule(approved, r_ar, m_ar, f1, location_name=selected_loc_name)
-        export_schedule_pdf(approved, r_ar, m_ar, f2, location_name=selected_loc_name)
-        with open(f1, "rb") as f: cb.download_button("Pobierz Excel", f, f1, use_container_width=True)
-        with open(f2, "rb") as f: cc.download_button("Pobierz PDF", f, f2, use_container_width=True)
+            # --- Tabela podglądu bezpośredniego ---
+            pl_holidays = holidays.Poland(years=a_yr)
+            days_in_month = calendar.monthrange(a_yr, a_mo)[1]
+            days_list_str = [str(d) for d in range(1, days_in_month + 1)]
+            
+            approved_fixed = {name: {str(d): v for d, v in days.items()} for name, days in approved.items()}
+            df_app = pd.DataFrame.from_dict(approved_fixed, orient='index', columns=days_list_str)
+            st.dataframe(df_app, use_container_width=True)
+
+            # --- Generowanie HTML do druku (ukryte) ---
+            def day_bg2(col, y, m):
+                try:
+                    dt2 = date(y, m, int(col))
+                    ph2 = holidays.Poland(years=y)
+                    if dt2.weekday() == 6 or dt2 in ph2: return '#FFC7CE'
+                    if dt2.weekday() == 5: return '#C6EFCE'
+                except: pass
+                return '#ffffff'
+
+            def shift_color2(val):
+                c = {'R': '#006100', 'P': '#0070C0', 'N': '#000000', 'W': '#c00000', 'U': '#c00000', 'CH': '#c00000'}
+                return c.get(str(val), '#000000')
+
+            th_cells2 = '<th style="border:1px solid #000;padding:3px;background:#d0d0d0">Imię i Nazwisko</th>'
+            for col2 in days_list_str:
+                th_cells2 += f'<th style="border:1px solid #000;padding:2px;background:{day_bg2(col2, a_yr, a_mo)};font-size:9px">{col2}</th>'
+
+            tr_rows2 = ''
+            for emp_name2, row2 in df_app.iterrows():
+                tds2 = f'<td style="border:1px solid #000;padding:3px;white-space:nowrap"><b>{emp_name2}</b></td>'
+                for col2 in days_list_str:
+                    val2 = str(row2[col2]) if pd.notna(row2[col2]) else ''
+                    tds2 += f'<td style="border:1px solid #000;padding:2px;text-align:center;font-weight:bold;color:{shift_color2(val2)};font-size:10px">{val2}</td>'
+                tr_rows2 += f'<tr>{tds2}</tr>'
+
+            print_html2 = f"""
+            <div class="print-element print-only" style="width:100%; font-family:sans-serif;">
+                <h3 style="text-align:center; margin-bottom:10px;">GRAFIK PRACY: {a_loc_name} - {sel_app_label.upper()} (ZATWIERDZONY)</h3>
+                <table style="width:100%; border-collapse:collapse; text-align:center; font-size:11px;">
+                    <thead><tr>{th_cells2}</tr></thead>
+                    <tbody>{tr_rows2}</tbody>
+                </table>
+            </div>
+            """
+            st.markdown(print_html2, unsafe_allow_html=True)
+
+            # --- Przyciski eksportu ---
+            st.divider()
+            c_p, c_e, c_pf = st.columns(3)
+            if c_p.button("🖨️ Drukuj Archiwum", use_container_width=True):
+                trigger_print()
+                
+            f_xl = f"archiwum_{a_mo}_{a_yr}.xlsx"
+            f_pd = f"archiwum_{a_mo}_{a_yr}.pdf"
+            export_schedule(approved, a_yr, a_mo, f_xl, location_name=selected_loc_name)
+            export_schedule_pdf(approved, a_yr, a_mo, f_pd, location_name=selected_loc_name)
+            
+            with open(f_xl, "rb") as f: c_e.download_button("Pobierz Excel", f, f_xl, use_container_width=True)
+            with open(f_pd, "rb") as f: c_pf.download_button("Pobierz PDF", f, f_pd, use_container_width=True)
     
-    if not draft and not approved:
-        st.info(f"Brak zapisanych grafików dla obiektu {selected_loc_name} w okresie {m_ar}/{r_ar}.")
+    # The original "if not draft and not approved" block is now handled by the tab logic
+    # and the specific messages within each tab.
+    # This part of the original code is no longer needed:
+    # if not draft and not approved:
+    #     st.info(f"Brak zapisanych grafików dla obiektu {selected_loc_name} w okresie {m_ar}/{r_ar}.")
 
 elif menu == "Niedostępności (Urlopy/L4)":
     st.header("Grafik nieobecności")
