@@ -532,11 +532,61 @@ elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'ad
             # --- Tabela podglądu bezpośredniego ---
             pl_holidays = holidays.Poland(years=a_yr)
             days_in_month = calendar.monthrange(a_yr, a_mo)[1]
-            days_list_str = [str(d) for d in range(1, days_in_month + 1)]
+            days_list = list(range(1, days_in_month + 1))
+            days_list_str = [str(d) for d in days_list]
             
             approved_fixed = {name: {str(d): v for d, v in days.items()} for name, days in approved.items()}
             df_app = pd.DataFrame.from_dict(approved_fixed, orient='index', columns=days_list_str)
-            st.dataframe(df_app, use_container_width=True)
+            
+            # --- Kolorowy Tabela dla Streamlit (Archiwum) ---
+            def display_day_header_bg(d):
+                dt = date(a_yr, a_mo, d)
+                if dt.weekday() == 6 or dt in pl_holidays: return '#FFCDD2'
+                elif dt.weekday() == 5: return '#DCEDC8'
+                return '#e8e8e8'
+
+            def display_day_cell_bg(d):
+                dt = date(a_yr, a_mo, d)
+                if dt.weekday() == 6 or dt in pl_holidays: return '#FFF3F3'
+                elif dt.weekday() == 5: return '#F3FFF3'
+                return '#ffffff'
+
+            shift_txt_color = {
+                'R': '#006100', 'P': '#0070C0', 'N': '#222222',
+                'W': '#c00000', 'U': '#c00000', 'CH': '#880000'
+            }
+
+            th_html = '<th style="border:1px solid #ccc; padding:5px 8px; background:#d0d0d0; text-align:left; white-space:nowrap; position:sticky; left:0; z-index:2;">Pracownik</th>'
+            for d in days_list:
+                bg = display_day_header_bg(d)
+                dt_h = date(a_yr, a_mo, d)
+                dow = ['Pn','Wt','Śr','Cz','Pt','So','Nd'][dt_h.weekday()]
+                th_html += f'<th style="border:1px solid #ccc; padding:3px 2px; background:{bg}; text-align:center; min-width:26px; font-size:10px">{d}<br><span style="font-weight:normal">{dow}</span></th>'
+
+            tr_html = ''
+            for emp_name, row in df_app.iterrows():
+                tds = f'<td style="border:1px solid #ccc; padding:4px 8px; background:#fafafa; white-space:nowrap; font-weight:bold; position:sticky; left:0; z-index:1;">{emp_name}</td>'
+                for d in days_list:
+                    val = str(row[str(d)]) if pd.notna(row[str(d)]) else ''
+                    fc = shift_txt_color.get(val, '#888888')
+                    cbg = display_day_cell_bg(d)
+                    tds += f'<td style="border:1px solid #ccc; padding:3px 2px; text-align:center; background:{cbg}; color:{fc}; font-weight:bold; font-size:12px">{val}</td>'
+                tr_html += f'<tr>{tds}</tr>'
+
+            table_html = f'''
+            <style>
+              .arch-sched-table {{ font-family: sans-serif; border-collapse: collapse; font-size: 12px; width: 100%; }}
+              .arch-sched-table td, .arch-sched-table th {{ border: 1px solid #ccc; }}
+            </style>
+            <div style="overflow-x:auto; margin-top:10px; margin-bottom:15px; border: 1px solid #ccc;">
+            <table class="arch-sched-table">
+              <thead><tr>{th_html}</tr></thead>
+              <tbody>{tr_html}</tbody>
+            </table>
+            </div>
+            '''
+            st.markdown(table_html, unsafe_allow_html=True)
+
 
             # --- Generowanie HTML do druku (ukryte) ---
             def day_bg2(col, y, m):
