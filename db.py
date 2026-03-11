@@ -5,8 +5,8 @@ from sqlalchemy.orm import sessionmaker
 from datetime import date
 import streamlit as st
 
-DB_URL = st.secrets.get("db_url", "postgresql://postgres.oxzlfmaotsosxzvivjrt:Logowanie000@aws-1-eu-west-1.pooler.supabase.com:6543/postgres")
-
+# Connection string from st.secrets (will crash natively locally until environment variable is loaded, ensuring secure pass storage)
+DB_URL = st.secrets["db_url"]
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -62,18 +62,9 @@ class Schedule(Base):
 # --- DB Interactions ---
 
 def init_db():
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    if db.query(Location).count() == 0:
-        for l in ["Maszynownia Przepompowni", "Oczyszczalnia", "Kanalarze"]:
-            db.add(Location(name=l))
-    if db.query(User).count() == 0:
-        db.add(User(username="admin", password="Logowanie000", role="admin"))
-        db.add(User(username="uzytkownik1", password="grafiki2026", role="user"))
-    db.commit()
-    db.close()
-
-    # Migracja: dodaj kolumnę employee_id do tabeli users, jeśli nie istnieje
+    # Migracja 1: dodaj kolumnę employee_id do tabeli users, jeśli nie istnieje.
+    # Uruchamiane surowym zapytaniem, aby zaktualizować starą tabelę zanim ORM spróbuje zapytać
+    # za pomocą klasy User, która ma już zdefiniowane employee_id.
     try:
         with engine.connect() as conn:
             conn.execute(text(
@@ -81,7 +72,21 @@ def init_db():
             ))
             conn.commit()
     except Exception:
-        pass  # Kolumna już istnieje lub brak uprawnień
+        pass  # Kolumna już istnieje lub inna wada, kontynuuj
+
+    # Teraz bezpiecznie mapuj ORM
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    
+    if db.query(Location).count() == 0:
+        for l in ["Maszynownia Przepompowni", "Oczyszczalnia", "Kanalarze"]:
+            db.add(Location(name=l))
+    if db.query(User).count() == 0:
+        db.add(User(username="admin", password="Logowanie000", role="admin"))
+        db.add(User(username="uzytkownik1", password="grafiki2026", role="user"))
+        
+    db.commit()
+    db.close()
 
 def get_locations():
     db = SessionLocal()
