@@ -295,6 +295,14 @@ def remove_user(user_id):
     db.commit()
     db.close()
 
+def change_user_role(user_id, new_role):
+    db = SessionLocal()
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        user.role = new_role
+        db.commit()
+    db.close()
+
 def link_user_to_employee(user_id, employee_id):
     """Powiązuje konto użytkownika z profilem pracownika (None = odłącz)."""
     db = SessionLocal()

@@ -930,9 +930,22 @@ elif menu == "Zarządzanie Kontami" and st.session_state['user_role'] == 'admin'
     users_full = db.get_users_full()
     for uid, uname, urole, linked_emp_id in users_full:
         st.divider()
-        colA, colB, colC, colD = st.columns([2, 2, 3, 1])
+        colA, colB, colC, colD = st.columns([1, 1, 2, 1])
         colA.write(f"**{uname}**")
-        colB.write(f"Rola: `{urole}`")
+        
+        # Selectbox zmiany roli
+        if uname != 'admin': # Główny admin z app.py pozostanie zablokowany
+            role_options = ["user", "admin"]
+            curr_role_idx = role_options.index(urole) if urole in role_options else 0
+            new_selected_role = colB.selectbox(
+                "Uprawnienia:", role_options, index=curr_role_idx, key=f"role_{uid}", label_visibility="collapsed"
+            )
+            if new_selected_role != urole:
+                db.change_user_role(uid, new_selected_role)
+                st.success(f"Zmieniono uprawnienia konta {uname} na {new_selected_role}!")
+                st.rerun()
+        else:
+            colB.write(f"Rola: `{urole}` 🔒")
 
         # Selectbox powiązania z pracownikiem
         current_label = "Brak powiązania"
@@ -940,22 +953,26 @@ elif menu == "Zarządzanie Kontami" and st.session_state['user_role'] == 'admin'
             if eid_l == linked_emp_id:
                 current_label = label_l
                 break
+        
+        # Filtrowanie i zamiana tuple/dict tak, aby nie powodować linta (powinno być OK, dict zachowuje kolejność)
         all_labels = list(emp_link_options.keys())
         curr_idx = all_labels.index(current_label) if current_label in all_labels else 0
+        
         chosen = colC.selectbox(
-            "Powiąż z pracownikiem",
+            "Powiąż z profilem pracownika",
             options=all_labels,
             index=curr_idx,
             key=f"link_emp_{uid}",
             label_visibility="collapsed"
         )
-        if colC.button("Zapisz powiązanie", key=f"save_link_{uid}"):
-            db.link_user_to_employee(uid, emp_link_options[chosen])
-            st.success(f"Powiązano konto **{uname}** z: **{chosen}**")
-            st.rerun()
+        if hasattr(colC, 'button'): # safety
+            if colC.button("Zapisz powiązanie", key=f"save_link_{uid}"):
+                db.link_user_to_employee(uid, emp_link_options[chosen])
+                st.success(f"Powiązano konto **{uname}** z: **{chosen}**")
+                st.rerun()
 
         if uname != 'admin':
-            if colD.button("Usuń", key=f"user_{uid}"):
+            if colD.button("Usuń Konto", type="secondary", key=f"user_{uid}"):
                 db.remove_user(uid)
                 st.rerun()
         else:
