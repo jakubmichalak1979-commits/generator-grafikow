@@ -285,14 +285,19 @@ if menu == "Generowanie Grafiku":
                         unavailabilities[idx][d] = t
                 
                 generator = ScheduleGenerator(rok, miesiac, [emp_dict[i] for i in range(len(emps))], unavailabilities, location_name=selected_loc_name)
-                wynik = generator.solve()
+                wynik, ignored_requests = generator.solve()
                 if wynik:
                     st.session_state['active_schedule'] = wynik
                     st.session_state['schedule_status'] = "NEW"
+                    st.session_state['ignored_requests'] = ignored_requests
                 else:
                     st.error("Brak rozwiązania spełniającego zasady.")
 
         if 'active_schedule' in st.session_state:
+            if st.session_state.get('schedule_status') == "NEW" and st.session_state.get('ignored_requests'):
+                st.warning("⚠️ Nie wszystkie prośby pracowników mogły zostać spełnione. Poniżej znajduje się lista zignorowanych próśb (w celu wygenerowania grafiku spełniającego zasady KP i obsady).")
+                st.dataframe(pd.DataFrame(st.session_state['ignored_requests']), use_container_width=True)
+
             wynik = st.session_state['active_schedule']
             emp_name_to_id = {name: eid for eid, name, email, s_order in emps_master}
             pl_holidays = holidays.Poland(years=rok)

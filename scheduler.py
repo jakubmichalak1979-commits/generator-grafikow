@@ -51,7 +51,10 @@ class ScheduleGenerator:
                 # Exactly one state per day handled implicitly by shifts integer variable
                 model.AddExactlyOne([shift_is[(e, d, s)] for s in range(6)])
 
+        extra_penalties = []
+
         # Fixed Unavailabilities
+        self.ignored_vars = {}
         for e in range(self.num_employees):
             for d in range(1, self.num_days + 1):
                 is_u = False
@@ -64,20 +67,32 @@ class ScheduleGenerator:
                     elif status == 'CH':
                         model.Add(shifts[(e, d)] == self.CH)
                         is_ch = True
-                    elif status == 'W':
-                        model.Add(shifts[(e, d)] == self.W)
-                    elif status == 'NR':
-                        model.Add(shifts[(e, d)] != self.R)
-                    elif status == 'NP':
-                        model.Add(shifts[(e, d)] != self.P)
-                    elif status == 'NN':
-                        model.Add(shifts[(e, d)] != self.N)
-                    elif status == 'TR' or status == 'R':
-                        model.Add(shifts[(e, d)] == self.R)
-                    elif status == 'TP' or status == 'P':
-                        model.Add(shifts[(e, d)] == self.P)
-                    elif status == 'TN' or status == 'N':
-                        model.Add(shifts[(e, d)] == self.N)
+                    else:
+                        ignored_var = model.NewBoolVar(f'ignored_{e}_{d}')
+                        self.ignored_vars[(e, d)] = ignored_var
+                        extra_penalties.append(ignored_var * 50000)
+                        
+                        if status == 'W':
+                            model.Add(shifts[(e, d)] == self.W).OnlyEnforceIf(ignored_var.Not())
+                            model.Add(shifts[(e, d)] != self.W).OnlyEnforceIf(ignored_var)
+                        elif status == 'NR':
+                            model.Add(shifts[(e, d)] != self.R).OnlyEnforceIf(ignored_var.Not())
+                            model.Add(shifts[(e, d)] == self.R).OnlyEnforceIf(ignored_var)
+                        elif status == 'NP':
+                            model.Add(shifts[(e, d)] != self.P).OnlyEnforceIf(ignored_var.Not())
+                            model.Add(shifts[(e, d)] == self.P).OnlyEnforceIf(ignored_var)
+                        elif status == 'NN':
+                            model.Add(shifts[(e, d)] != self.N).OnlyEnforceIf(ignored_var.Not())
+                            model.Add(shifts[(e, d)] == self.N).OnlyEnforceIf(ignored_var)
+                        elif status == 'TR' or status == 'R':
+                            model.Add(shifts[(e, d)] == self.R).OnlyEnforceIf(ignored_var.Not())
+                            model.Add(shifts[(e, d)] != self.R).OnlyEnforceIf(ignored_var)
+                        elif status == 'TP' or status == 'P':
+                            model.Add(shifts[(e, d)] == self.P).OnlyEnforceIf(ignored_var.Not())
+                            model.Add(shifts[(e, d)] != self.P).OnlyEnforceIf(ignored_var)
+                        elif status == 'TN' or status == 'N':
+                            model.Add(shifts[(e, d)] == self.N).OnlyEnforceIf(ignored_var.Not())
+                            model.Add(shifts[(e, d)] != self.N).OnlyEnforceIf(ignored_var)
                 
                 # Prevent generator from randomly assigning U or CH
                 if not is_u:
@@ -86,7 +101,6 @@ class ScheduleGenerator:
                     model.Add(shifts[(e, d)] != self.CH)
 
         # Kary dodatkowe (preferencje użytkownika)
-        extra_penalties = []
 
         # Basic Coverage Rules 
         for d in range(1, self.num_days + 1):
@@ -285,12 +299,21 @@ class ScheduleGenerator:
 
         if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
             result = {}
+            ignored_requests = []
             for e in range(self.num_employees):
                 emp_name = self.employees[e]
                 result[emp_name] = {}
                 for d in range(1, self.num_days + 1):
                     val = solver.Value(shifts[(e, d)])
                     result[emp_name][d] = self.shift_names[val]
-            return result
+                    
+                    if (e, d) in getattr(self, 'ignored_vars', {}) and solver.Value(self.ignored_vars[(e, d)]):
+                        ignored_requests.append({
+                            'Pracownik': emp_name,
+                            'Dzień': d,
+                            'Prośba': self.unavailabilities[e][d],
+                            'Przydzielono': self.shift_names[val]
+                        })
+            return result, ignored_requests
         else:
-            return None
+            return None, []
