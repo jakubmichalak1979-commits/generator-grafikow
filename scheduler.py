@@ -251,13 +251,85 @@ class ScheduleGenerator:
         model.AddMinEquality(min_n, n_counts)
  
         # 7-day windows - user rule:
-        # In any 7-day chunk, an employee must have at least 1 shift OFF (W/U/CH)
-        # We will add constraint: no 7 consecutive working days.
+        # W każdym bloku 7-dniowym pracownik musi mieć odpowiedni odpoczynek tygodniowy.
+        # Odpoczynek spełniony gdy: 2 dni z rzędu wolne (W, U, CH) LUB 1 dzień wolnego pomiędzy różnymi zmianami roboczymi (np. R,W,P lub N,W,R).
+        periods = [(1, 7), (8, 14), (15, 21), (22, self.num_days)]
+        
         for e in range(self.num_employees):
+            # Rolling 7-day window max working days (pozostałość dla bezpieczeństwa)
             for d in range(1, self.num_days - 5):
-                # max 6 working days in a 7-day window -> at least 1 day off
                 working_days = sum(shift_is[(e, d+offset, s)] for offset in range(7) for s in [self.R, self.P, self.N])
                 model.Add(working_days <= 6)
+
+            # --- Nowa reguła 35h odpoczynku tygodniowego ---
+            e_is_off = {}
+            for d in range(1, self.num_days + 1):
+                e_is_off[d] = model.NewBoolVar(f'is_off_{e}_{d}')
+                model.Add(shift_is[(e, d, self.W)] + shift_is[(e, d, self.U)] + shift_is[(e, d, self.CH)] == 1).OnlyEnforceIf(e_is_off[d])
+                model.Add(shift_is[(e, d, self.W)] + shift_is[(e, d, self.U)] + shift_is[(e, d, self.CH)] == 0).OnlyEnforceIf(e_is_off[d].Not())
+                
+            two_days_off = {}
+            for d in range(1, self.num_days):
+                two_days_off[d] = model.NewBoolVar(f'two_days_off_{e}_{d}')
+                model.AddBoolAnd([e_is_off[d], e_is_off[d+1]]).OnlyEnforceIf(two_days_off[d])
+                model.AddBoolOr([e_is_off[d].Not(), e_is_off[d+1].Not()]).OnlyEnforceIf(two_days_off[d].Not())
+                
+            different_shifts = {}
+            for d in range(2, self.num_days):
+                same_working = model.NewBoolVar(f'same_working_{e}_{d}')
+                sw_r = model.NewBoolVar(f'sw_r_{e}_{d}')
+                sw_p = model.NewBoolVar(f'sw_p_{e}_{d}')
+                sw_n = model.NewBoolVar(f'sw_n_{e}_{d}')
+                
+                model.AddBoolAnd([shift_is[(e, d-1, self.R)], shift_is[(e, d+1, self.R)]]).OnlyEnforceIf(sw_r)
+                model.AddBoolOr([shift_is[(e, d-1, self.R)].Not(), shift_is[(e, d+1, self.R)].Not()]).OnlyEnforceIf(sw_r.Not())
+                
+                model.AddBoolAnd([shift_is[(e, d-1, self.P)], shift_is[(e, d+1, self.P)]]).OnlyEnforceIf(sw_p)
+                model.AddBoolOr([shift_is[(e, d-1, self.P)].Not(), shift_is[(e, d+1, self.P)].Not()]).OnlyEnforceIf(sw_p.Not())
+                
+                model.AddBoolAnd([shift_is[(e, d-1, self.N)], shift_is[(e, d+1, self.N)]]).OnlyEnforceIf(sw_n)
+                model.AddBoolOr([shift_is[(e, d-1, self.N)].Not(), shift_is[(e, d+1, self.N)].Not()]).OnlyEnforceIf(sw_n.Not())
+                
+                # same_working jest 1, gdy d-1 i d+1 to te same zmiany robocze (R-R, P-P, N-N)
+                model.AddBoolOr([sw_r, sw_p, sw_n]).OnlyEnforceIf(same_working)
+                model.AddBoolAnd([sw_r.Not(), sw_p.Not(), sw_n.Not()]).OnlyEnforceIf(same_working.Not())
+                
+                different_shifts[d] = model.NewBoolVar(f'different_shifts_{e}_{d}')
+                # Warunek: dzień jest wolny(W), d-1 to roboczy, d+1 to roboczy, i SĄ RÓŻNE
+                model.AddBoolAnd([
+                    e_is_off[d],
+                    e_is_off[d-1].Not(),
+                    e_is_off[d+1].Not(),
+                    same_working.Not()
+                ]).OnlyEnforceIf(different_shifts[d])
+                model.AddBoolOr([
+                    e_is_off[d].Not(),
+                    e_is_off[d-1],
+                    e_is_off[d+1],
+                    same_working
+                ]).OnlyEnforceIf(different_shifts[d].Not())
+                
+            rest_anchors = {}
+            for d in range(1, self.num_days + 1):
+                rest_anchors[d] = model.NewBoolVar(f'rest_anchor_{e}_{d}')
+                literals = []
+                if d in two_days_off: literals.append(two_days_off[d])
+                if d in different_shifts: literals.append(different_shifts[d])
+                
+                if literals:
+                    model.AddBoolOr(literals).OnlyEnforceIf(rest_anchors[d])
+                    model.AddBoolAnd([lit.Not() for lit in literals]).OnlyEnforceIf(rest_anchors[d].Not())
+                else:
+                    model.Add(rest_anchors[d] == 0)
+                    
+            for p_idx, (p_start, p_end) in enumerate(periods):
+                period_anchors = [rest_anchors[d] for d in range(p_start, p_end + 1)]
+                period_satisfied = model.NewBoolVar(f'period_sat_{e}_{p_start}')
+                model.AddBoolOr(period_anchors).OnlyEnforceIf(period_satisfied)
+                model.AddBoolAnd([a.Not() for a in period_anchors]).OnlyEnforceIf(period_satisfied.Not())
+                
+                # Priorytet najwyższy (100k) nakłaniający solver do respektowania przerwy tygodniowej ponad życzeniami użytkownika
+                extra_penalties.append(period_satisfied.Not() * 100000)
                 
         # Kary dodatkowe (preferencje użytkownika) - kontynuacja dla domyślnych
         for d in range(1, self.num_days + 1):
