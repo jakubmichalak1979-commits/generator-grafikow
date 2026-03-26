@@ -520,14 +520,15 @@ elif menu == "Zatwierdzanie i Archiwum" and st.session_state['user_role'] == 'ad
             idx = draft_options.index(sel_draft_label)
             d_yr, d_mo, d_loc_id, d_loc_name = loc_drafts[idx]
 
-            c1, c2 = st.columns([1, 1])
-            if c1.button("✏️ Wczytaj wybrany Draft do Edytora", type="primary", use_container_width=True):
-                st.session_state['selected_year'] = d_yr
-                st.session_state['selected_month'] = d_mo
-                st.session_state['active_schedule'] = db.get_schedule(d_yr, d_mo, d_loc_id, status="DRAFT")
+            def load_draft_to_editor(yr, mo, loc_id):
+                st.session_state['selected_year'] = yr
+                st.session_state['selected_month'] = mo
+                st.session_state['active_schedule'] = db.get_schedule(yr, mo, loc_id, status="DRAFT")
                 st.session_state['schedule_status'] = "DRAFT"
                 st.session_state['nav_menu'] = "Generowanie Grafiku"
-                st.rerun()
+
+            c1, c2 = st.columns([1, 1])
+            c1.button("✏️ Wczytaj wybrany Draft do Edytora", type="primary", use_container_width=True, on_click=load_draft_to_editor, args=(d_yr, d_mo, d_loc_id))
 
     with tab_arch:
         st.subheader("Przewijaj historyczne grafiki")
