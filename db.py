@@ -183,7 +183,7 @@ def get_schedule(year, month, location_id, status="APPROVED"):
         Schedule.month == month,
         Schedule.location_id == location_id,
         Schedule.status == status
-    ).all()
+    ).order_by(Employee.sort_order, Employee.name, Schedule.day).all()
     db.close()
     
     schedule = {}
