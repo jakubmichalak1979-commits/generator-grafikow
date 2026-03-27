@@ -14,6 +14,7 @@ from email import encoders
 import os
 import extra_streamlit_components as stx
 import streamlit.components.v1 as components
+import openpyxl
 
 st.set_page_config(page_title="Generator Grafików Pro", layout="wide", initial_sidebar_state="expanded")
 
@@ -226,7 +227,8 @@ if st.session_state['user_role'] == 'admin':
         "Statystyki",
         "Zatwierdzanie i Archiwum",
         "Pracownicy",
-        "Zarządzanie Kontami"
+        "Zarządzanie Kontami",
+        "Wgrywanie z Excela (Import)"
     ]
 else:
     menu_options = ["Mój Grafik", "Moje Preferencje", "Moje Statystyki"]
@@ -983,6 +985,113 @@ elif menu == "Zarządzanie Kontami" and st.session_state['user_role'] == 'admin'
                 st.rerun()
         else:
             colD.write("🔒")
+
+elif menu == "Wgrywanie z Excela (Import)" and st.session_state['user_role'] == 'admin':
+    st.header("📥 Import Grafiku z Excela")
+    st.write(f"Wybrany obiekt: **{selected_loc_name}**")
+    
+    col1, col2 = st.columns(2)
+    imp_rok = col1.number_input("Rok", 2020, 2030, st.session_state.get('selected_year', date.today().year), key="imp_rok")
+    imp_miesiac = col2.number_input("Miesiąc", 1, 12, st.session_state.get('selected_month', date.today().month), key="imp_miesiac")
+    
+    st.session_state['selected_year'] = imp_rok
+    st.session_state['selected_month'] = imp_miesiac
+    
+    st.subheader("1. Pobierz szablon")
+    st.write("W pierwszej kolejności pobierz pusty szablon dla wybranego miesiąca. Szablon automatycznie uwzględnia listę pracowników Twojego działu/obiektu.")
+    
+    days_in_month = calendar.monthrange(imp_rok, imp_miesiac)[1]
+    days_list = list(range(1, days_in_month + 1))
+    
+    emps_master = db.get_employees(location_id)
+    emp_names = [e[1] for e in emps_master]
+    
+    if not emps_master:
+        st.warning("Najpierw musisz dodać pracowników (Zakładka: Pracownicy), aby wygenerować szablon.")
+    else:
+        import io
+        template_df = pd.DataFrame(index=emp_names, columns=[str(d) for d in days_list])
+        template_df.index.name = "Imię i Nazwisko"
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            template_df.to_excel(writer, sheet_name='Szablon_Grafiku')
+            
+            # Formatowanie szerokości kolumn (opcjonalnie dla estetyki)
+            worksheet = writer.sheets['Szablon_Grafiku']
+            worksheet.column_dimensions['A'].width = 25
+            for idx, col in enumerate(template_df.columns, start=2):
+                col_letter = openpyxl.utils.get_column_letter(idx)
+                worksheet.column_dimensions[col_letter].width = 4
+                
+        excel_data = output.getvalue()
+        
+        filename = f"szablon_grafiku_{selected_loc_name}_{imp_miesiac}_{imp_rok}.xlsx"
+        st.download_button(
+            label="⬇️ Pobierz czysty plik Excel do uzupełnienia",
+            data=excel_data,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+        st.divider()
+        st.subheader("2. Wgraj uzupełniony grafik")
+        st.write("Możesz wgrać uzupełniony szablon Excel, który zapisze się jako dokument **Roboczy (DRAFT)**, czekający na zatwierdzenie.")
+        uploaded_file = st.file_uploader("Wybierz plik z uzupełnionym grafikiem", type=["xlsx", "xls"])
+        
+        if uploaded_file is not None:
+            try:
+                imported_df = pd.read_excel(uploaded_file, index_col=0)
+                # Upewnienie się że wszystkie nagłówki są stringami
+                imported_df.columns = [str(c) for c in imported_df.columns]
+                
+                required_cols = [str(d) for d in days_list]
+                missing_cols = [c for c in required_cols if c not in imported_df.columns]
+                
+                if missing_cols:
+                    st.error(f"⚠️ Zły format pliku! Brakuje dni dla tego miesiąca: {missing_cols}")
+                else:
+                    imported_df.index = imported_df.index.fillna("N/A").astype(str)
+                    
+                    st.success("Plik został wstępnie odczytany pomyślnie. Podgląd danych (przed zapisem do bazy):")
+                    
+                    found_emps = imported_df.index.tolist()
+                    missing_emps = [e for e in emp_names if e not in found_emps]
+                    if missing_emps:
+                        st.warning(f"⚠️ W pliku brakuje pracowników przydzielonych do obiektu: {missing_emps}. Dla nich program wgra pusty wiersz.")
+                        
+                    st.dataframe(imported_df)
+                    
+                    if st.button("💾 Zapisz wczytany plik jako Roboczy (DRAFT)", type="primary"):
+                        schedule_dict = {}
+                        emp_name_to_id = {name: eid for eid, name, email, s_order in emps_master}
+                        
+                        allowed_shifts = ['R', 'P', 'N', 'W', 'U', 'CH']
+                        
+                        for emp_name in emp_names:
+                            schedule_dict[emp_name] = {}
+                            if emp_name in found_emps:
+                                row_data = imported_df.loc[emp_name]
+                                if isinstance(row_data, pd.DataFrame): 
+                                    row_data = row_data.iloc[0] # gdyby były duble imion
+                                    
+                                for d in days_list:
+                                    val = row_data.get(str(d), "")
+                                    clean_val = str(val).strip().upper() if pd.notna(val) else ""
+                                    
+                                    if clean_val not in allowed_shifts:
+                                        clean_val = ""
+                                    schedule_dict[emp_name][int(d)] = clean_val
+                            else:
+                                for d in days_list:
+                                    schedule_dict[emp_name][int(d)] = ""
+                                    
+                        db.save_schedule(schedule_dict, imp_rok, imp_miesiac, emp_name_to_id, location_id, status="DRAFT", user=st.session_state['username'])
+                        st.success("✅ Grafik pomyślnie wgrano! Został zapisany jako dokument Roboczy (DRAFT). Możesz go edytować lub zatwierdzić (zakładka: Generowanie Grafiku).")
+            except Exception as e:
+                import traceback
+                st.error(f"Błąd przetwarzania pliku Excel: {str(e)}")
+                st.write(traceback.format_exc())
 
 # ========================================
 # SEKCJE DLA PRACOWNIKA (rola: user)
