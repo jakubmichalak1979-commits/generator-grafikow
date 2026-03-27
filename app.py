@@ -462,16 +462,21 @@ if menu == "Generowanie Grafiku":
             else: st.success("✅ Grafik zgodny z podstawowymi zasadami odpoczynku.")
 
             c1, c2 = st.columns(2)
+            
+            def clean_shift(v):
+                if pd.isna(v) or v is None: return ""
+                return str(v).strip()
+
             if c1.button("Zapisz jako Roboczy (DRAFT)"):
                 new_w = edited_df[days_list_str].to_dict(orient='index')
-                new_w_int = {nm: {int(dk): dv for dk, dv in ds.items()} for nm, ds in new_w.items()}
+                new_w_int = {nm: {int(dk): clean_shift(dv) for dk, dv in ds.items()} for nm, ds in new_w.items()}
                 db.save_schedule(new_w_int, rok, miesiac, emp_name_to_id, location_id, status="DRAFT", user=st.session_state['username'])
                 st.success("Grafik zapisany jako Roboczy (DRAFT)!")
 
             if st.session_state['user_role'] == 'admin':
                 if c2.button("Zatwierdź Grafik (APPROVED)", type="primary"):
                     new_w = edited_df[days_list_str].to_dict(orient='index')
-                    new_w_int = {nm: {int(dk): dv for dk, dv in ds.items()} for nm, ds in new_w.items()}
+                    new_w_int = {nm: {int(dk): clean_shift(dv) for dk, dv in ds.items()} for nm, ds in new_w.items()}
                     db.save_schedule(new_w_int, rok, miesiac, emp_name_to_id, location_id, status="APPROVED", user=st.session_state['username'])
                     st.success("GRAFIK ZATWIERDZONY!")
                     fx, fp = f"grafik_{miesiac}_{rok}.xlsx", f"grafik_{miesiac}_{rok}.pdf"
@@ -484,7 +489,7 @@ if menu == "Generowanie Grafiku":
             st.divider()
             if st.button("Drukuj obecny widok (Podgląd Draftu)"):
                 new_w = edited_df[days_list_str].to_dict(orient='index')
-                new_w_int = {nm: {int(dk): dv for dk, dv in ds.items()} for nm, ds in new_w.items()}
+                new_w_int = {nm: {int(dk): clean_shift(dv) for dk, dv in ds.items()} for nm, ds in new_w.items()}
                 f_x = f"roboczy_{miesiac}.xlsx"; f_p = f"roboczy_{miesiac}.pdf"
                 export_schedule(new_w_int, rok, miesiac, f_x, location_name=selected_loc_name)
                 export_schedule_pdf(new_w_int, rok, miesiac, f_p, location_name=selected_loc_name)
