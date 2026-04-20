@@ -5,9 +5,10 @@ from datetime import date
 import holidays
 
 class ScheduleGenerator:
-    def __init__(self, year, month, employees, unavailabilities, location_name="Maszynownia Przepompowni"):
+    def __init__(self, year, month, employees, unavailabilities, location_name="Maszynownia Przepompowni", prefer_whole_weekends_off=False):
         self.year = year
         self.month = month
+        self.prefer_whole_weekends_off = prefer_whole_weekends_off
         self.num_days = calendar.monthrange(year, month)[1]
         self.employees = employees
         self.num_employees = len(employees)
@@ -349,6 +350,26 @@ class ScheduleGenerator:
                 model.Add(r_count_val == 2).OnlyEnforceIf(is_double)
                 model.Add(r_count_val != 2).OnlyEnforceIf(is_double.Not())
                 extra_penalties.append(is_double * 500)  # Potężna kara zniechęcająca do podwójnych rannych w sobotę
+
+        if getattr(self, 'prefer_whole_weekends_off', False):
+            for e in range(self.num_employees):
+                for d in range(1, self.num_days):
+                    dt = date(self.year, self.month, d)
+                    if dt.weekday() == 5:  # Sobota, d+1 to Niedziela
+                        sat_work = model.NewBoolVar(f'sat_work_e{e}_d{d}')
+                        sun_work = model.NewBoolVar(f'sun_work_e{e}_d{d+1}')
+                        
+                        model.Add(shift_is[(e, d, self.W)] + shift_is[(e, d, self.U)] + shift_is[(e, d, self.CH)] == 0).OnlyEnforceIf(sat_work)
+                        model.Add(shift_is[(e, d, self.W)] + shift_is[(e, d, self.U)] + shift_is[(e, d, self.CH)] == 1).OnlyEnforceIf(sat_work.Not())
+                        
+                        model.Add(shift_is[(e, d+1, self.W)] + shift_is[(e, d+1, self.U)] + shift_is[(e, d+1, self.CH)] == 0).OnlyEnforceIf(sun_work)
+                        model.Add(shift_is[(e, d+1, self.W)] + shift_is[(e, d+1, self.U)] + shift_is[(e, d+1, self.CH)] == 1).OnlyEnforceIf(sun_work.Not())
+                        
+                        one_day_work = model.NewBoolVar(f'one_day_we_work_e{e}_d{d}')
+                        model.Add(sat_work + sun_work == 1).OnlyEnforceIf(one_day_work)
+                        model.Add(sat_work + sun_work != 1).OnlyEnforceIf(one_day_work.Not())
+                        
+                        extra_penalties.append(one_day_work * 800)  # Duża kara za rozbijanie weekendu
 
         max_we = model.NewIntVar(0, 31, 'max_we')
         min_we = model.NewIntVar(0, 31, 'min_we')

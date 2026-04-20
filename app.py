@@ -272,6 +272,8 @@ if menu == "Generowanie Grafiku":
         edited_emps = st.data_editor(df_emps, hide_index=True, key=f"emp_sel_{rok}_{miesiac}")
         included_names = edited_emps[edited_emps["Uwzględnij"] == True]["Imię i Nazwisko"].tolist()
         
+        prefer_whole_weekends_off = st.checkbox("Preferuj całe weekendy wolne (grupuj zmiany weekendowe)", value=False, help="Program spróbuje tak ustalać zmiany, aby jeśli pracownik ma wolne, to w miarę możliwości w oba dni weekendu (sobota i niedziela).")
+
         if st.button("Uruchom Generator (Nowa Propozycja)", type="primary"):
             with st.spinner("Przeliczanie..."):
                 emps = [e for e in emps_master if e[1] in included_names]
@@ -286,7 +288,7 @@ if menu == "Generowanie Grafiku":
                         if idx not in unavailabilities: unavailabilities[idx] = {}
                         unavailabilities[idx][d] = t
                 
-                generator = ScheduleGenerator(rok, miesiac, [emp_dict[i] for i in range(len(emps))], unavailabilities, location_name=selected_loc_name)
+                generator = ScheduleGenerator(rok, miesiac, [emp_dict[i] for i in range(len(emps))], unavailabilities, location_name=selected_loc_name, prefer_whole_weekends_off=prefer_whole_weekends_off)
                 wynik, ignored_requests = generator.solve()
                 if wynik:
                     st.session_state['active_schedule'] = wynik
