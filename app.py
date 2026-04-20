@@ -259,12 +259,16 @@ if menu == "Generowanie Grafiku":
                 if st.button("Wczytaj DRAFT do edycji"):
                     st.session_state['active_schedule'] = saved_draft
                     st.session_state['schedule_status'] = "DRAFT"
+                    if f"edit_{rok}_{miesiac}" in st.session_state:
+                        del st.session_state[f"edit_{rok}_{miesiac}"]
             
             elif saved_approved:
                 st.success("✅ Istnieje zatwierdzony grafik (APPROVED) dla tego miesiąca.")
                 if st.button("Wczytaj APPROVED do podglądu/edycji"):
                     st.session_state['active_schedule'] = saved_approved
                     st.session_state['schedule_status'] = "APPROVED"
+                    if f"edit_{rok}_{miesiac}" in st.session_state:
+                        del st.session_state[f"edit_{rok}_{miesiac}"]
 
         st.divider()
         st.subheader("Opcje generowania")
@@ -294,6 +298,8 @@ if menu == "Generowanie Grafiku":
                     st.session_state['active_schedule'] = wynik
                     st.session_state['schedule_status'] = "NEW"
                     st.session_state['ignored_requests'] = ignored_requests
+                    if f"edit_{rok}_{miesiac}" in st.session_state:
+                        del st.session_state[f"edit_{rok}_{miesiac}"]
                 else:
                     st.error("Brak rozwiązania spełniającego zasady.")
 
@@ -320,6 +326,22 @@ if menu == "Generowanie Grafiku":
             wynik_str_keys = {name: {str(d): v for d, v in d_shifts.items()} for name, d_shifts in wynik_fixed.items()}
             df_wynik = pd.DataFrame.from_dict(wynik_str_keys, orient='index', columns=days_list_str)
             df_wynik = df_wynik.reindex([e[1] for e in emps_master])
+
+            # --- Aktualizacja df_wynik o niezapisane zmiany z edytora ---
+            edit_key = f"edit_{rok}_{miesiac}"
+            if edit_key in st.session_state:
+                edits = st.session_state[edit_key].get('edited_rows', {})
+                temp_names = [e[1] for e in emps_master]
+                for r_idx_str, changes in edits.items():
+                    try:
+                        r_idx = int(r_idx_str)
+                        if r_idx < len(temp_names):
+                            emp_name = temp_names[r_idx]
+                            for c_name, new_val in changes.items():
+                                if c_name in days_list_str:
+                                    df_wynik.at[emp_name, c_name] = new_val
+                    except:
+                        pass
 
             # --- Obliczenie Statystyk (Podsumowanie na prawo) ---
             r_list, p_list, n_list, w_list, u_list, ch_list, s_list, we_list = [], [], [], [], [], [], [], []
